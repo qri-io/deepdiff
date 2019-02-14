@@ -57,61 +57,63 @@ var (
 // value at d1 into d2
 func Diff(d1, d2 interface{}) ([]Delta, error) {
 	var (
-		wg                     sync.WaitGroup
-		t1, t2                 Node
-		t1SubTrees, t2SubTrees []Node
-		cmps1                  = make(chan Node)
-		cmps2                  = make(chan Node)
+		wg        sync.WaitGroup
+		t1, t2    Node
+		t1Nodes   []Node
+		t1nodesCh = make(chan Node)
+		t2nodesCh = make(chan Node)
 	)
 
 	wg.Add(2)
 
 	go func(nodes <-chan Node) {
 		for n := range nodes {
-			t1SubTrees = sortAdd(n, t1SubTrees)
+			// t1SubTrees = sortAdd(n, t1SubTrees)
+			t1Nodes = append(t1Nodes, n)
 		}
-	}(cmps1)
+	}(t1nodesCh)
 	go func() {
-		t1 = tree(d1, "", nil, cmps1)
-		close(cmps1)
+		t1 = tree(d1, "", nil, t1nodesCh)
+		close(t1nodesCh)
 		wg.Done()
 	}()
 
 	go func(nodes <-chan Node) {
-		for n := range nodes {
-			t2SubTrees = sortAdd(n, t2SubTrees)
+		for range nodes {
+			// do nothing
 		}
-	}(cmps2)
+	}(t2nodesCh)
 	go func() {
-		t2 = tree(d2, "", nil, cmps2)
-		close(cmps2)
+		t2 = tree(d2, "", nil, t2nodesCh)
+		close(t2nodesCh)
 		wg.Done()
 	}()
 
 	wg.Wait()
 
-	matches, err := findExactMatches(t1SubTrees, t2SubTrees)
-	if err != nil {
-		return nil, err
-	}
+	// matches, err := findExactMatches(t1SubTrees, t2SubTrees)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
+	matches := queueMatch(t1Nodes, t2)
 	// fmt.Printf("%d %d\n", matches[0].left.Parent().Hash(), matches[0].right.Parent().Hash())
 	for i, m := range matches {
-		fmt.Printf("%d. %s %s\n", i, path(m.left), path(m.right))
+		fmt.Printf("%d. %s %s\n", i, path(m[0]), path(m[1]))
 	}
 
 	fmt.Println(hex.EncodeToString(t1.Hash()), t1.Weight())
 	fmt.Println(hex.EncodeToString(t2.Hash()), t2.Weight())
 	// fmt.Println(t1SubTrees, t2SubTrees)
-	for _, n := range t1SubTrees {
+	for _, n := range t1Nodes {
 		fmt.Printf("[%s %d] ", hex.EncodeToString(n.Hash()), n.Weight())
 	}
 	fmt.Printf("\n")
 
-	for _, n := range t2SubTrees {
-		fmt.Printf("[%s %d] ", hex.EncodeToString(n.Hash()), n.Weight())
-	}
-	fmt.Printf("\n")
+	// for _, n := range t2SubTrees {
+	// 	fmt.Printf("[%s %d] ", hex.EncodeToString(n.Hash()), n.Weight())
+	// }
+	// fmt.Printf("\n")
 	return nil, nil
 }
 
@@ -192,6 +194,10 @@ type Node interface {
 	Value() interface{}
 }
 
+type Compound interface {
+	Children() []Node
+}
+
 type compound struct {
 	t        NodeType
 	name     string
@@ -208,6 +214,7 @@ func (c compound) Hash() []byte       { return c.hash }
 func (c compound) Weight() int        { return c.weight }
 func (c compound) Parent() Node       { return c.parent }
 func (c compound) Value() interface{} { return c.value }
+func (c compound) Children() []Node   { return c.children }
 
 type scalar struct {
 	t      NodeType
@@ -224,10 +231,10 @@ func (s scalar) Weight() int        { return 1 }
 func (s scalar) Parent() Node       { return s.parent }
 func (s scalar) Value() interface{} { return s.value }
 
-func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
+func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 	switch x := v.(type) {
 	case nil:
-		return scalar{
+		n = scalar{
 			t:      NTNull,
 			name:   name,
 			hash:   NewHash().Sum([]byte("null")),
@@ -236,7 +243,7 @@ func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
 		}
 	case float64:
 		fstr := strconv.FormatFloat(x, 'f', -1, 64)
-		return scalar{
+		n = scalar{
 			t:      NTFloat,
 			name:   name,
 			hash:   NewHash().Sum([]byte(fstr)),
@@ -244,7 +251,7 @@ func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
 			value:  v,
 		}
 	case string:
-		return scalar{
+		n = scalar{
 			t:      NTString,
 			name:   name,
 			hash:   NewHash().Sum([]byte(x)),
@@ -256,7 +263,7 @@ func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
 		if x {
 			bstr = "true"
 		}
-		return scalar{
+		n = scalar{
 			t:     NTBool,
 			name:  name,
 			hash:  NewHash().Sum([]byte(bstr)),
@@ -264,7 +271,7 @@ func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
 		}
 	case []interface{}:
 		hasher := NewHash()
-		n := compound{
+		arr := compound{
 			t:      NTArray,
 			name:   name,
 			parent: parent,
@@ -273,21 +280,20 @@ func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
 
 		for i, v := range x {
 			name := strconv.Itoa(i)
-			node := tree(v, name, n, compounds)
+			node := tree(v, name, arr, nodes)
 			hasher.Write(node.Hash())
-			n.children = append(n.children, node)
+			arr.children = append(arr.children, node)
 		}
-		n.hash = hasher.Sum(nil)
+		arr.hash = hasher.Sum(nil)
 
-		n.weight = 1
-		for _, ch := range n.children {
-			n.weight += ch.Weight()
+		arr.weight = 1
+		for _, ch := range arr.children {
+			arr.weight += ch.Weight()
 		}
-		compounds <- n
-		return n
+		n = arr
 	case map[string]interface{}:
 		hasher := NewHash()
-		n := compound{
+		obj := compound{
 			t:      NTObject,
 			name:   name,
 			parent: parent,
@@ -302,21 +308,23 @@ func tree(v interface{}, name string, parent Node, compounds chan Node) Node {
 		sort.Strings(names)
 
 		for _, name := range names {
-			node := tree(x[name], name, n, compounds)
+			node := tree(x[name], name, obj, nodes)
 			hasher.Write(node.Hash())
-			n.children = append(n.children, node)
+			obj.children = append(obj.children, node)
 		}
-		n.hash = hasher.Sum(nil)
+		obj.hash = hasher.Sum(nil)
 
-		n.weight = 1
-		for _, ch := range n.children {
-			n.weight += ch.Weight()
+		obj.weight = 1
+		for _, ch := range obj.children {
+			obj.weight += ch.Weight()
 		}
-		compounds <- n
-		return n
+		n = obj
 	default:
 		panic(fmt.Sprintf("unexpected type: %T", v))
 	}
+
+	nodes <- n
+	return
 }
 
 // sortAdd inserts n into nodes, keeping the slice sorted by node weight,
@@ -330,9 +338,7 @@ func sortAdd(n Node, nodes []Node) []Node {
 }
 
 // Match connects nodes from different trees
-type Match struct {
-	left, right Node
-}
+type Match [2]Node
 
 func findExactMatches(t1SubTrees, t2SubTrees []Node) ([]Match, error) {
 	// determine exact matches, starting top-down
@@ -340,7 +346,7 @@ func findExactMatches(t1SubTrees, t2SubTrees []Node) ([]Match, error) {
 	for _, n2 := range t2SubTrees {
 		for _, n1 := range t1SubTrees {
 			if bytes.Equal(n1.Hash(), n2.Hash()) {
-				matches = append(matches, Match{left: n1, right: n2})
+				matches = append(matches, Match{n1, n2})
 			}
 		}
 	}
@@ -353,7 +359,57 @@ func findExactMatches(t1SubTrees, t2SubTrees []Node) ([]Match, error) {
 	return matches, nil
 }
 
-// ExactMatch checks if two nodes are the same
-func ExactMatch(a, b Node) bool {
-	return bytes.Equal(a.Hash(), b.Hash())
+func queueMatch(t1Nodes []Node, t2 Node) (matches []Match) {
+	queue := make(chan Node)
+	done := make(chan struct{})
+	considering := 1
+
+	go func() {
+		var candidates []Match
+		for n2 := range queue {
+			candidates = nil
+			for _, n1 := range t1Nodes {
+				if bytes.Equal(n1.Hash(), n2.Hash()) {
+					candidates = append(candidates, Match{n1, n2})
+				}
+			}
+
+			switch len(candidates) {
+			case 0:
+				// no candidates. check if node has children. adding if so.
+				if n2c, ok := n2.(Compound); ok {
+					for _, ch := range n2c.Children() {
+						considering++
+						go func(n Node) {
+							queue <- n
+						}(ch)
+					}
+				}
+			case 1:
+				matches = append(matches, candidates[0])
+			default:
+				match := bestCandidate(candidates)
+				if match != nil {
+					matches = append(matches, *match)
+				}
+			}
+
+			considering--
+			if considering == 0 {
+				done <- struct{}{}
+				break
+			}
+		}
+	}()
+
+	// start queue with t2 (root of tree)
+	queue <- t2
+	<-done
+	return
+}
+
+// bestCandidate is the one who's parent
+func bestCandidate(candidates []Match) *Match {
+	// TODO
+	return &candidates[0]
 }
