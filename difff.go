@@ -38,7 +38,6 @@
 package difff
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
 	"hash"
@@ -59,7 +58,7 @@ func Diff(d1, d2 interface{}) ([]Delta, error) {
 	var (
 		wg        sync.WaitGroup
 		t1, t2    Node
-		t1Nodes   []Node
+		t1Nodes   = map[string][]Node{}
 		t1nodesCh = make(chan Node)
 		t2nodesCh = make(chan Node)
 	)
@@ -68,25 +67,25 @@ func Diff(d1, d2 interface{}) ([]Delta, error) {
 
 	go func(nodes <-chan Node) {
 		for n := range nodes {
-			// t1SubTrees = sortAdd(n, t1SubTrees)
-			t1Nodes = append(t1Nodes, n)
+			key := hashStr(n.Hash())
+			t1Nodes[key] = append(t1Nodes[key], n)
 		}
+		wg.Done()
 	}(t1nodesCh)
 	go func() {
 		t1 = tree(d1, "", nil, t1nodesCh)
 		close(t1nodesCh)
-		wg.Done()
 	}()
 
 	go func(nodes <-chan Node) {
 		for range nodes {
 			// do nothing
 		}
+		wg.Done()
 	}(t2nodesCh)
 	go func() {
 		t2 = tree(d2, "", nil, t2nodesCh)
 		close(t2nodesCh)
-		wg.Done()
 	}()
 
 	wg.Wait()
@@ -95,18 +94,22 @@ func Diff(d1, d2 interface{}) ([]Delta, error) {
 	// if err != nil {
 	// 	return nil, err
 	// }
-
-	matches := queueMatch(t1Nodes, t2)
+	fmt.Println("weights", t1.Weight(), t2.Weight())
+	queueMatch(t1Nodes, t2)
 	// fmt.Printf("%d %d\n", matches[0].left.Parent().Hash(), matches[0].right.Parent().Hash())
-	for i, m := range matches {
-		fmt.Printf("%d. %s %s\n", i, path(m[0]), path(m[1]))
-	}
+	// for i, m := range matches {
+	// 	fmt.Printf("%d. %s %s\n", i, path(m[0]), path(m[1]))
+	// }
 
-	fmt.Println(hex.EncodeToString(t1.Hash()), t1.Weight())
-	fmt.Println(hex.EncodeToString(t2.Hash()), t2.Weight())
+	// fmt.Println(hex.EncodeToString(t1.Hash()), t1.Weight())
+	// fmt.Println(hex.EncodeToString(t2.Hash()), t2.Weight())
 	// fmt.Println(t1SubTrees, t2SubTrees)
-	for _, n := range t1Nodes {
-		fmt.Printf("[%s %d] ", hex.EncodeToString(n.Hash()), n.Weight())
+	for key, ns := range t1Nodes {
+		str := ""
+		for _, n := range ns {
+			str += fmt.Sprintf(" %s", path(n))
+		}
+		fmt.Printf("%s [%s]\n", key, str)
 	}
 	fmt.Printf("\n")
 
@@ -166,7 +169,11 @@ func path(n Node) string {
 // with their own desired hash.Hash implementation if the value space is
 // particularly large. default is 32-bit FNV 1 for fast, cheap hashing
 var NewHash = func() hash.Hash {
-	return fnv.New32()
+	return fnv.New64()
+}
+
+func hashStr(sum []byte) string {
+	return hex.EncodeToString(sum)
 }
 
 // NodeType defines all of the atoms in our universe
@@ -192,29 +199,38 @@ type Node interface {
 	Parent() Node
 	Name() string
 	Value() interface{}
+	Match() Node
+	SetMatch(Node)
 }
 
 type Compound interface {
-	Children() []Node
+	Node
+	Children() map[string]Node
+	Child(key string) Node
 }
 
 type compound struct {
-	t        NodeType
-	name     string
-	hash     []byte
-	parent   Node
-	children []Node
-	weight   int
-	value    interface{}
+	t      NodeType
+	name   string
+	hash   []byte
+	parent Node
+	weight int
+	value  interface{}
+	match  Node
+
+	children map[string]Node
 }
 
-func (c compound) Type() NodeType     { return c.t }
-func (c compound) Name() string       { return c.name }
-func (c compound) Hash() []byte       { return c.hash }
-func (c compound) Weight() int        { return c.weight }
-func (c compound) Parent() Node       { return c.parent }
-func (c compound) Value() interface{} { return c.value }
-func (c compound) Children() []Node   { return c.children }
+func (c compound) Type() NodeType            { return c.t }
+func (c compound) Name() string              { return c.name }
+func (c compound) Hash() []byte              { return c.hash }
+func (c compound) Weight() int               { return c.weight }
+func (c compound) Parent() Node              { return c.parent }
+func (c compound) Value() interface{}        { return c.value }
+func (c compound) Match() Node               { return c.match }
+func (c *compound) SetMatch(n Node)          { c.match = n }
+func (c compound) Children() map[string]Node { return c.children }
+func (c compound) Child(name string) Node    { return c.children[name] }
 
 type scalar struct {
 	t      NodeType
@@ -222,67 +238,77 @@ type scalar struct {
 	hash   []byte
 	parent Node
 	value  interface{}
+	weight int
+	match  Node
 }
 
 func (s scalar) Type() NodeType     { return s.t }
 func (s scalar) Name() string       { return s.name }
 func (s scalar) Hash() []byte       { return s.hash }
-func (s scalar) Weight() int        { return 1 }
+func (s scalar) Weight() int        { return s.weight }
 func (s scalar) Parent() Node       { return s.parent }
 func (s scalar) Value() interface{} { return s.value }
+func (s scalar) Match() Node        { return s.match }
+func (s *scalar) SetMatch(n Node)   { s.match = n }
 
 func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 	switch x := v.(type) {
 	case nil:
-		n = scalar{
+		n = &scalar{
 			t:      NTNull,
 			name:   name,
 			hash:   NewHash().Sum([]byte("null")),
 			parent: parent,
 			value:  v,
+			weight: 1,
 		}
 	case float64:
 		fstr := strconv.FormatFloat(x, 'f', -1, 64)
-		n = scalar{
+		n = &scalar{
 			t:      NTFloat,
 			name:   name,
 			hash:   NewHash().Sum([]byte(fstr)),
 			parent: parent,
 			value:  v,
+			weight: len(fstr),
 		}
 	case string:
-		n = scalar{
+		n = &scalar{
 			t:      NTString,
 			name:   name,
 			hash:   NewHash().Sum([]byte(x)),
 			parent: parent,
 			value:  v,
+			weight: len(x),
 		}
 	case bool:
 		bstr := "false"
 		if x {
 			bstr = "true"
 		}
-		n = scalar{
-			t:     NTBool,
-			name:  name,
-			hash:  NewHash().Sum([]byte(bstr)),
-			value: v,
+		n = &scalar{
+			t:      NTBool,
+			name:   name,
+			hash:   NewHash().Sum([]byte(bstr)),
+			parent: parent,
+			value:  v,
+			weight: len(bstr),
 		}
 	case []interface{}:
 		hasher := NewHash()
-		arr := compound{
-			t:      NTArray,
-			name:   name,
-			parent: parent,
-			value:  v,
+		arr := &compound{
+			t:        NTArray,
+			name:     name,
+			parent:   parent,
+			children: map[string]Node{},
+			value:    v,
 		}
 
 		for i, v := range x {
 			name := strconv.Itoa(i)
 			node := tree(v, name, arr, nodes)
 			hasher.Write(node.Hash())
-			arr.children = append(arr.children, node)
+			arr.children[name] = node
 		}
 		arr.hash = hasher.Sum(nil)
 
@@ -293,11 +319,12 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 		n = arr
 	case map[string]interface{}:
 		hasher := NewHash()
-		obj := compound{
-			t:      NTObject,
-			name:   name,
-			parent: parent,
-			value:  v,
+		obj := &compound{
+			t:        NTObject,
+			name:     name,
+			parent:   parent,
+			children: map[string]Node{},
+			value:    v,
 		}
 
 		// gotta sort keys for consistent hashing :(
@@ -310,7 +337,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 		for _, name := range names {
 			node := tree(x[name], name, obj, nodes)
 			hasher.Write(node.Hash())
-			obj.children = append(obj.children, node)
+			obj.children[name] = node
 		}
 		obj.hash = hasher.Sum(nil)
 
@@ -337,46 +364,22 @@ func sortAdd(n Node, nodes []Node) []Node {
 	return nodes
 }
 
-// Match connects nodes from different trees
-type Match [2]Node
-
-func findExactMatches(t1SubTrees, t2SubTrees []Node) ([]Match, error) {
-	// determine exact matches, starting top-down
-	var matches []Match
-	for _, n2 := range t2SubTrees {
-		for _, n1 := range t1SubTrees {
-			if bytes.Equal(n1.Hash(), n2.Hash()) {
-				matches = append(matches, Match{n1, n2})
-			}
-		}
-	}
-
-	// TODO (b5) - wat do when no compounds are the same? leafs?
-	if len(matches) == 0 {
-		return nil, ErrCompletelyDistinct
-	}
-
-	return matches, nil
-}
-
-func queueMatch(t1Nodes []Node, t2 Node) (matches []Match) {
+func queueMatch(t1Nodes map[string][]Node, t2 Node) {
 	queue := make(chan Node)
 	done := make(chan struct{})
 	considering := 1
+	t2Weight := t2.Weight()
 
 	go func() {
-		var candidates []Match
+		var candidates []Node
 		for n2 := range queue {
-			candidates = nil
-			for _, n1 := range t1Nodes {
-				if bytes.Equal(n1.Hash(), n2.Hash()) {
-					candidates = append(candidates, Match{n1, n2})
-				}
-			}
+			key := hashStr(n2.Hash())
+
+			candidates = t1Nodes[key]
 
 			switch len(candidates) {
 			case 0:
-				// no candidates. check if node has children. adding if so.
+				// no candidates. check if node has children. If so, add them.
 				if n2c, ok := n2.(Compound); ok {
 					for _, ch := range n2c.Children() {
 						considering++
@@ -386,11 +389,15 @@ func queueMatch(t1Nodes []Node, t2 Node) (matches []Match) {
 					}
 				}
 			case 1:
-				matches = append(matches, candidates[0])
+				// connect an exact match. yay!
+				n1 := candidates[0]
+				n1.SetMatch(n2)
+				n2.SetMatch(n1)
 			default:
-				match := bestCandidate(candidates)
-				if match != nil {
-					matches = append(matches, *match)
+				// choose a best candidate. let the sketchiness begin.
+				if n1BestMatch := bestCandidate(candidates, n2, t2Weight); n1BestMatch != nil {
+					n1BestMatch.SetMatch(n2)
+					n2.SetMatch(n1BestMatch)
 				}
 			}
 
@@ -409,7 +416,103 @@ func queueMatch(t1Nodes []Node, t2 Node) (matches []Match) {
 }
 
 // bestCandidate is the one who's parent
-func bestCandidate(candidates []Match) *Match {
-	// TODO
-	return &candidates[0]
+func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) Node {
+	maxDist := 1 + float32(n2.Weight())/float32(t2Weight)
+	dist := 1 + float32(n2.Parent().Weight()-n2.Weight())/float32(t2Weight)
+	n2 = n2.Parent()
+DISTLOOP:
+	for dist < maxDist {
+		for i, can := range t1Candidates {
+			if cp := can.Parent(); cp != nil {
+				if n2.Name() == cp.Name() {
+					// fmt.Printf("matching: %s and %s\n", path(n2), path(cp))
+					n2.SetMatch(cp)
+					cp.SetMatch(n2)
+					break DISTLOOP
+				}
+			}
+			t1Candidates[i] = can.Parent()
+		}
+		if n2.Parent() == nil {
+			break
+		}
+		dist = 1 + float32(n2.Parent().Weight()-n2.Weight())/float32(t2Weight)
+		n2 = n2.Parent()
+	}
+	// fmt.Println("dist", dist, "maxDist:", maxDist, "n2Weight:", n2.Weight(), "n2path:", path(n2), "treeWeight:", t2Weight)
+	return nil
+}
+
+func optimize() {
+
+}
+
+func propagateMatchToParent(n Node) {
+	// if n is a compound type that isn't matched
+	if cmp, ok := n.(Compound); ok && n.Match() == nil {
+		var match Node
+		// iterate each child
+		for _, ch := range cmp.Children() {
+			// if this child has a match
+			if m := ch.Match(); m != nil && m.Parent() != nil {
+				p := m.Parent()
+				if match == nil {
+					match = p
+				} else if p.Weight() > m.Weight() {
+					// if a match already exists, keep the heavier match
+					match = p
+				}
+			}
+		}
+		if match != nil {
+			n.SetMatch(match)
+		}
+	}
+}
+
+func propagateMatchToChildren(n Node) {
+	// if a node is matched & a compound type,
+	if n1, ok := n.(Compound); ok && n.Match() != nil {
+		if n2, ok := n.Match().(Compound); ok {
+			if n1.Type() == NTObject && n2.Type() == NTObject {
+				// match any key names
+				for name, n1ch := range n1.Children() {
+					if n2ch := n2.Child(name); n2ch != nil {
+						n2ch.SetMatch(n1ch)
+					}
+				}
+			}
+			if n1.Type() == NTArray && n2.Type() == NTArray && len(n1.Children()) == len(n2.Children()) {
+				// if arrays are the same length, match all children
+				// b/c these are arrays, no names should be missing, safe to skip check
+				for name, n1ch := range n1.Children() {
+					n2.Child(name).SetMatch(n1ch)
+				}
+			}
+		}
+	}
+}
+
+func computeDeltas(t1, t2 Node) []Delta {
+	ds := calcIUDs(t1, t2)
+	calcMoves(ds)
+	organize(ds)
+	return ds
+}
+
+// calculate inserts, updates, & deletes
+func calcIUDs(t1, t2 Node) []Delta {
+	return nil
+}
+
+func calcMoves(ds []Delta) {
+
+}
+
+func organize([]Delta) {
+}
+
+// lcss calculates the longest common subsequence
+func lcss() {
+
 }

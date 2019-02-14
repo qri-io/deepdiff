@@ -13,9 +13,12 @@ var aJSON = `{
 	"bar": false,
 	"baz": {
 		"a": {
-			"b": 4
+			"b": 4,
+			"c": false,
+			"d": "apples-and-oranges"
 		},
-		"c": null
+		"e": null,
+		"g": "apples-and-oranges"
 	}
 }`
 
@@ -25,10 +28,12 @@ var bJSON = `{
 	"bar": false,
 	"baz": {
 		"a": {
-			"b": 4
+			"b": 5,
+			"c": false,
+			"d": "apples-and-oranges"
 		},
-		"c": "thirty-thousand-something-dollars",
-		"d": false
+		"e": "thirty-thousand-something-dollars",
+		"f": false
 	}
 }`
 
