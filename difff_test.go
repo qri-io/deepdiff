@@ -66,7 +66,11 @@ func RunTestCases(t *testing.T, cases []TestCase) {
 			t.Fatal(err)
 		}
 
-		diff := Diff(src, dst)
+		diff, err := Diff(src, dst)
+		if err != nil {
+			t.Errorf("%d. '%s' unexpected error: %s", i, c.description, err)
+			continue
+		}
 		if err := CompareDiffs(c.expect, diff); err != nil {
 			t.Errorf("%d. '%s' result mismatch: %s", i, c.description, err)
 		}
