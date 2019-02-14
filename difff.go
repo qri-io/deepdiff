@@ -55,68 +55,10 @@ var (
 // Diff computes a slice of deltas that define an edit script for turning the
 // value at d1 into d2
 func Diff(d1, d2 interface{}) ([]*Delta, error) {
-	var (
-		wg        sync.WaitGroup
-		t1, t2    Node
-		t1Nodes   = map[string][]Node{}
-		t1nodesCh = make(chan Node)
-		t2nodesCh = make(chan Node)
-	)
-
-	wg.Add(2)
-
-	go func(nodes <-chan Node) {
-		for n := range nodes {
-			key := hashStr(n.Hash())
-			t1Nodes[key] = append(t1Nodes[key], n)
-		}
-		wg.Done()
-	}(t1nodesCh)
-	go func() {
-		t1 = tree(d1, "", nil, t1nodesCh)
-		close(t1nodesCh)
-	}()
-
-	go func(nodes <-chan Node) {
-		for range nodes {
-			// do nothing
-		}
-		wg.Done()
-	}(t2nodesCh)
-	go func() {
-		t2 = tree(d2, "", nil, t2nodesCh)
-		close(t2nodesCh)
-	}()
-
-	wg.Wait()
-
-	// matches, err := findExactMatches(t1SubTrees, t2SubTrees)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	t1, t2, t1Nodes := prepTrees(d1, d2)
 	queueMatch(t1Nodes, t2)
 	dts := computeDeltas(t1, t2)
-	// fmt.Printf("%d %d\n", matches[0].left.Parent().Hash(), matches[0].right.Parent().Hash())
-	// for i, m := range matches {
-	// 	fmt.Printf("%d. %s %s\n", i, path(m[0]), path(m[1]))
-	// }
 
-	// fmt.Println(hex.EncodeToString(t1.Hash()), t1.Weight())
-	// fmt.Println(hex.EncodeToString(t2.Hash()), t2.Weight())
-	// fmt.Println(t1SubTrees, t2SubTrees)
-	// for key, ns := range t1Nodes {
-	// 	str := ""
-	// 	for _, n := range ns {
-	// 		str += fmt.Sprintf(" %s", path(n))
-	// 	}
-	// 	fmt.Printf("%s [%s]\n", key, str)
-	// }
-	// fmt.Printf("\n")
-
-	// for _, n := range t2SubTrees {
-	// 	fmt.Printf("[%s %d] ", hex.EncodeToString(n.Hash()), n.Weight())
-	// }
-	// fmt.Printf("\n")
 	return dts, nil
 }
 
@@ -265,6 +207,43 @@ func (s scalar) Parent() Node       { return s.parent }
 func (s scalar) Value() interface{} { return s.value }
 func (s scalar) Match() Node        { return s.match }
 func (s *scalar) SetMatch(n Node)   { s.match = n }
+
+func prepTrees(d1, d2 interface{}) (t1, t2 Node, t1Nodes map[string][]Node) {
+	var (
+		wg        sync.WaitGroup
+		t1nodesCh = make(chan Node)
+		t2nodesCh = make(chan Node)
+	)
+
+	t1Nodes = map[string][]Node{}
+	wg.Add(2)
+
+	go func(nodes <-chan Node) {
+		for n := range nodes {
+			key := hashStr(n.Hash())
+			t1Nodes[key] = append(t1Nodes[key], n)
+		}
+		wg.Done()
+	}(t1nodesCh)
+	go func() {
+		t1 = tree(d1, "", nil, t1nodesCh)
+		close(t1nodesCh)
+	}()
+
+	go func(nodes <-chan Node) {
+		for range nodes {
+			// do nothing
+		}
+		wg.Done()
+	}(t2nodesCh)
+	go func() {
+		t2 = tree(d2, "", nil, t2nodesCh)
+		close(t2nodesCh)
+	}()
+
+	wg.Wait()
+	return
+}
 
 func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 	switch x := v.(type) {
