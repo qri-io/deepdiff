@@ -49,12 +49,18 @@ func TestBasicDiff(t *testing.T) {
 	}
 
 	Diff(a, b)
+	// ds, err := Diff(a, b)
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+	// data, _ := json.MarshalIndent(ds, "", "  ")
+	// fmt.Println(string(data))
 }
 
 type TestCase struct {
 	description string
 	src, dst    string // express test cases as json strings
-	expect      []Delta
+	expect      []*Delta
 }
 
 func RunTestCases(t *testing.T, cases []TestCase) {
@@ -82,7 +88,7 @@ func RunTestCases(t *testing.T, cases []TestCase) {
 	}
 }
 
-func CompareDiffs(a, b []Delta) error {
+func CompareDiffs(a, b []*Delta) error {
 	if len(a) != len(b) {
 		return fmt.Errorf("length mismatch: %d != %d", len(a), len(b))
 	}
@@ -96,7 +102,7 @@ func CompareDiffs(a, b []Delta) error {
 	return nil
 }
 
-func CompareDeltas(a, b Delta) error {
+func CompareDeltas(a, b *Delta) error {
 	if a.Type != b.Type {
 		return fmt.Errorf("Type mismatch. %T != %T", a.Type, b.Type)
 	}
@@ -116,32 +122,32 @@ func TestQriUseCases(t *testing.T) {
 			"detect scalar change",
 			`[[0,1,2]]`,
 			`[[0,1,3]]`,
-			[]Delta{
-				{Type: DTChange, SrcPath: []string{"0", "2"}, DstPath: []string{"0", "2"}, SrcVal: 2, DstVal: 3},
+			[]*Delta{
+				{Type: DTChange, SrcPath: "0.2", DstPath: "0.2", SrcVal: 2, DstVal: 3},
 			},
 		},
 		{
 			"detect insert",
 			`[[1]]`,
 			`[[1],[2]]`,
-			[]Delta{
-				{Type: DTInsert, SrcPath: []string{"0", "0"}, DstPath: []string{"0", "1"}, SrcVal: nil, DstVal: []interface{}{2}},
+			[]*Delta{
+				{Type: DTInsert, SrcPath: "0.0", DstPath: "0.1", SrcVal: "", DstVal: []interface{}{2}},
 			},
 		},
 		{
 			"detect remove",
 			`[[1],[2],[3]]`,
 			`[[1],[3]]`,
-			[]Delta{
-				{Type: DTRemove, SrcPath: []string{"0", "1"}, DstPath: nil, SrcVal: []interface{}{2}, DstVal: nil},
+			[]*Delta{
+				{Type: DTRemove, SrcPath: "0.1", DstPath: "", SrcVal: []interface{}{2}, DstVal: nil},
 			},
 		},
 		{
 			"detect move",
 			`[[1],[2],[3]]`,
 			`[[1],[3],[2]]`,
-			[]Delta{
-				{Type: DTMove, SrcPath: []string{"0", "1"}, DstPath: []string{"0", "2"}, SrcVal: []interface{}{2}, DstVal: []interface{}{2}},
+			[]*Delta{
+				{Type: DTMove, SrcPath: "0.1", DstPath: "0.2", SrcVal: []interface{}{2}, DstVal: []interface{}{2}},
 			},
 		},
 	}
@@ -149,7 +155,7 @@ func TestQriUseCases(t *testing.T) {
 	RunTestCases(t, cases)
 }
 
-func BenchmarkDiff(b *testing.B) {
+func BenchmarkDiff1(b *testing.B) {
 	srcData := `{
 		"foo" : {
 			"bar" : [1,2,3]

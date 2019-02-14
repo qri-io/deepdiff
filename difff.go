@@ -54,7 +54,7 @@ var (
 
 // Diff computes a slice of deltas that define an edit script for turning the
 // value at d1 into d2
-func Diff(d1, d2 interface{}) ([]Delta, error) {
+func Diff(d1, d2 interface{}) ([]*Delta, error) {
 	var (
 		wg        sync.WaitGroup
 		t1, t2    Node
@@ -94,8 +94,8 @@ func Diff(d1, d2 interface{}) ([]Delta, error) {
 	// if err != nil {
 	// 	return nil, err
 	// }
-	fmt.Println("weights", t1.Weight(), t2.Weight())
 	queueMatch(t1Nodes, t2)
+	dts := computeDeltas(t1, t2)
 	// fmt.Printf("%d %d\n", matches[0].left.Parent().Hash(), matches[0].right.Parent().Hash())
 	// for i, m := range matches {
 	// 	fmt.Printf("%d. %s %s\n", i, path(m[0]), path(m[1]))
@@ -104,20 +104,20 @@ func Diff(d1, d2 interface{}) ([]Delta, error) {
 	// fmt.Println(hex.EncodeToString(t1.Hash()), t1.Weight())
 	// fmt.Println(hex.EncodeToString(t2.Hash()), t2.Weight())
 	// fmt.Println(t1SubTrees, t2SubTrees)
-	for key, ns := range t1Nodes {
-		str := ""
-		for _, n := range ns {
-			str += fmt.Sprintf(" %s", path(n))
-		}
-		fmt.Printf("%s [%s]\n", key, str)
-	}
-	fmt.Printf("\n")
+	// for key, ns := range t1Nodes {
+	// 	str := ""
+	// 	for _, n := range ns {
+	// 		str += fmt.Sprintf(" %s", path(n))
+	// 	}
+	// 	fmt.Printf("%s [%s]\n", key, str)
+	// }
+	// fmt.Printf("\n")
 
 	// for _, n := range t2SubTrees {
 	// 	fmt.Printf("[%s %d] ", hex.EncodeToString(n.Hash()), n.Weight())
 	// }
 	// fmt.Printf("\n")
-	return nil, nil
+	return dts, nil
 }
 
 // DeltaType defines the types of changes xydiff can create
@@ -141,12 +141,27 @@ const (
 	DTChange
 )
 
+func (d DeltaType) String() string {
+	switch d {
+	case DTRemove:
+		return "remove"
+	case DTInsert:
+		return "insert"
+	case DTMove:
+		return "move"
+	case DTChange:
+		return "change"
+	default:
+		return "unknown"
+	}
+}
+
 // Delta represents a change between two documents
 type Delta struct {
 	Type DeltaType
 
-	SrcPath []string
-	DstPath []string
+	SrcPath string
+	DstPath string
 
 	SrcVal interface{}
 	DstVal interface{}
@@ -391,14 +406,10 @@ func queueMatch(t1Nodes map[string][]Node, t2 Node) {
 			case 1:
 				// connect an exact match. yay!
 				n1 := candidates[0]
-				n1.SetMatch(n2)
-				n2.SetMatch(n1)
+				matchNodes(n1, n2)
 			default:
 				// choose a best candidate. let the sketchiness begin.
-				if n1BestMatch := bestCandidate(candidates, n2, t2Weight); n1BestMatch != nil {
-					n1BestMatch.SetMatch(n2)
-					n2.SetMatch(n1BestMatch)
-				}
+				bestCandidate(candidates, n2, t2Weight)
 			}
 
 			considering--
@@ -415,20 +426,40 @@ func queueMatch(t1Nodes map[string][]Node, t2 Node) {
 	return
 }
 
+// matchNodes connects two nodes & tries to propagate that match upward to
+// ancestors so long as labels match
+func matchNodes(n1, n2 Node) {
+	n1.SetMatch(n2)
+	n2.SetMatch(n1)
+	n1p := n1.Parent()
+	n2p := n2.Parent()
+	for n1p != nil && n2p != nil {
+		// TODO - root name is coming back as "", need to think about why this is
+		// and weather it's ok to match roots
+		if n1p.Name() == n2p.Name() && n1p.Name() != "" && n2p.Name() != "" {
+			// fmt.Printf("also matching %s %s %s %d\n", path(n1p), path(n2p), n1p.Name(), n1p.Type())
+			n1p.SetMatch(n2p)
+			n2p.SetMatch(n1p)
+			n1p = n1p.Parent()
+			n2p = n2p.Parent()
+		}
+		break
+	}
+}
+
 // bestCandidate is the one who's parent
-func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) Node {
+func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 	maxDist := 1 + float32(n2.Weight())/float32(t2Weight)
 	dist := 1 + float32(n2.Parent().Weight()-n2.Weight())/float32(t2Weight)
 	n2 = n2.Parent()
-DISTLOOP:
+
 	for dist < maxDist {
 		for i, can := range t1Candidates {
 			if cp := can.Parent(); cp != nil {
 				if n2.Name() == cp.Name() {
 					// fmt.Printf("matching: %s and %s\n", path(n2), path(cp))
-					n2.SetMatch(cp)
-					cp.SetMatch(n2)
-					break DISTLOOP
+					matchNodes(cp, n2)
+					return
 				}
 			}
 			t1Candidates[i] = can.Parent()
@@ -440,7 +471,6 @@ DISTLOOP:
 		n2 = n2.Parent()
 	}
 	// fmt.Println("dist", dist, "maxDist:", maxDist, "n2Weight:", n2.Weight(), "n2path:", path(n2), "treeWeight:", t2Weight)
-	return nil
 }
 
 func optimize() {
@@ -493,23 +523,54 @@ func propagateMatchToChildren(n Node) {
 	}
 }
 
-func computeDeltas(t1, t2 Node) []Delta {
-	ds := calcIUDs(t1, t2)
+func computeDeltas(t1, t2 Node) []*Delta {
+	ds := calcICDs(t1, t2)
 	calcMoves(ds)
 	organize(ds)
 	return ds
 }
 
-// calculate inserts, updates, & deletes
-func calcIUDs(t1, t2 Node) []Delta {
-	return nil
+func walk(tree Node, path string, fn func(path string, n Node)) {
+	path = fmt.Sprintf("%s.%s", path, tree.Name())
+	fn(path, tree)
+	if cmp, ok := tree.(Compound); ok {
+		for _, n := range cmp.Children() {
+			walk(n, path, fn)
+		}
+	}
 }
 
-func calcMoves(ds []Delta) {
+// calculate inserts, changes, & deletes
+func calcICDs(t1, t2 Node) (dts []*Delta) {
+	walk(t1, "", func(path string, n Node) {
+		if t1.Match() == nil {
+			delta := &Delta{
+				Type:    DTRemove,
+				SrcPath: path,
+				SrcVal:  n.Value(),
+			}
+			dts = append(dts, delta)
+		}
+	})
+
+	walk(t2, "", func(path string, n Node) {
+		if t1.Match() == nil {
+			delta := &Delta{
+				Type:    DTInsert,
+				DstPath: path,
+				DstVal:  n.Value(),
+			}
+			dts = append(dts, delta)
+		}
+	})
+	return dts
+}
+
+func calcMoves(ds []*Delta) {
 
 }
 
-func organize([]Delta) {
+func organize([]*Delta) {
 }
 
 // lcss calculates the longest common subsequence
