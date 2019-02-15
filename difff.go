@@ -42,8 +42,10 @@ import (
 	"fmt"
 	"hash"
 	"hash/fnv"
+	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -57,6 +59,7 @@ var (
 func Diff(d1, d2 interface{}) ([]*Delta, error) {
 	t1, t2, t1Nodes := prepTrees(d1, d2)
 	queueMatch(t1Nodes, t2)
+	optimize(t1, t2)
 	dts := computeDeltas(t1, t2)
 
 	return dts, nil
@@ -64,39 +67,22 @@ func Diff(d1, d2 interface{}) ([]*Delta, error) {
 
 // DeltaType defines the types of changes xydiff can create
 // to describe the difference between two documents
-type DeltaType uint8
+type DeltaType string
 
 const (
-	// DTUnknown defaults DeltaType to undefined behaviour
-	DTUnknown DeltaType = iota
 	// DTRemove means making the children of a node
 	// become the children of a node's parent
-	DTRemove
+	DTRemove = DeltaType("remove")
 	// DTInsert is the compliment of deleting, adding
 	// children of a parent node to a new node, and making
 	// that node a child of the original parent
-	DTInsert
+	DTInsert = DeltaType("insert")
 	// DTMove is the succession of a deletion & insertion
 	// of the same node
-	DTMove
+	DTMove = DeltaType("move")
 	// DTChange is an alteration of a scalar data type (string, bool, float, etc)
-	DTChange
+	DTChange = DeltaType("change")
 )
-
-func (d DeltaType) String() string {
-	switch d {
-	case DTRemove:
-		return "remove"
-	case DTInsert:
-		return "insert"
-	case DTMove:
-		return "move"
-	case DTChange:
-		return "change"
-	default:
-		return "unknown"
-	}
-}
 
 // Delta represents a change between two documents
 type Delta struct {
@@ -110,15 +96,15 @@ type Delta struct {
 }
 
 func path(n Node) string {
-	str := n.Name()
+	path := []string{n.Name()}
 	for {
 		n = n.Parent()
 		if n == nil {
 			break
 		}
-		str = fmt.Sprintf("%s.%s", n.Name(), str)
+		path = append([]string{n.Name()}, path...)
 	}
-	return str
+	return "/" + strings.Join(path, "/")
 }
 
 // NewHash returns a new hash interface, wrapped in a function for easy
@@ -452,8 +438,15 @@ func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 	// fmt.Println("dist", dist, "maxDist:", maxDist, "n2Weight:", n2.Weight(), "n2path:", path(n2), "treeWeight:", t2Weight)
 }
 
-func optimize() {
-
+func optimize(t1, t2 Node) {
+	walk(t1, "", func(p string, n Node) {
+		propagateMatchToParent(n)
+		propagateMatchToChildren(n)
+	})
+	walk(t2, "", func(p string, n Node) {
+		propagateMatchToParent(n)
+		propagateMatchToChildren(n)
+	})
 }
 
 func propagateMatchToParent(n Node) {
@@ -475,6 +468,7 @@ func propagateMatchToParent(n Node) {
 		}
 		if match != nil {
 			n.SetMatch(match)
+			match.SetMatch(n)
 		}
 	}
 }
@@ -495,7 +489,9 @@ func propagateMatchToChildren(n Node) {
 				// if arrays are the same length, match all children
 				// b/c these are arrays, no names should be missing, safe to skip check
 				for name, n1ch := range n1.Children() {
-					n2.Child(name).SetMatch(n1ch)
+					n2ch := n2.Child(name)
+					n2ch.SetMatch(n1ch)
+					n1ch.SetMatch(n1ch)
 				}
 			}
 		}
@@ -510,7 +506,7 @@ func computeDeltas(t1, t2 Node) []*Delta {
 }
 
 func walk(tree Node, path string, fn func(path string, n Node)) {
-	path = fmt.Sprintf("%s.%s", path, tree.Name())
+	path += fmt.Sprintf("/%s", tree.Name())
 	fn(path, tree)
 	if cmp, ok := tree.(Compound); ok {
 		for _, n := range cmp.Children() {
@@ -522,7 +518,7 @@ func walk(tree Node, path string, fn func(path string, n Node)) {
 // calculate inserts, changes, & deletes
 func calcICDs(t1, t2 Node) (dts []*Delta) {
 	walk(t1, "", func(path string, n Node) {
-		if t1.Match() == nil {
+		if n.Match() == nil {
 			delta := &Delta{
 				Type:    DTRemove,
 				SrcPath: path,
@@ -533,13 +529,21 @@ func calcICDs(t1, t2 Node) (dts []*Delta) {
 	})
 
 	walk(t2, "", func(path string, n Node) {
-		if t1.Match() == nil {
+		match := n.Match()
+		if match == nil {
 			delta := &Delta{
 				Type:    DTInsert,
 				DstPath: path,
 				DstVal:  n.Value(),
 			}
 			dts = append(dts, delta)
+		} else {
+			// check if value is scalar
+			if _, ok := n.(Compound); !ok {
+				if delta := compareScalar(match, n, path); delta != nil {
+					dts = append(dts, delta)
+				}
+			}
 		}
 	})
 	return dts
@@ -555,4 +559,24 @@ func organize([]*Delta) {
 // lcss calculates the longest common subsequence
 func lcss() {
 
+}
+
+func compareScalar(n1, n2 Node, n2Path string) *Delta {
+	if n1.Type() != n2.Type() {
+		return &Delta{
+			Type:    DTChange,
+			DstPath: n2Path,
+			SrcVal:  n1.Value(),
+			DstVal:  n2.Value(),
+		}
+	}
+	if !reflect.DeepEqual(n1.Value(), n2.Value()) {
+		return &Delta{
+			Type:    DTChange,
+			DstPath: n2Path,
+			SrcVal:  n1.Value(),
+			DstVal:  n2.Value(),
+		}
+	}
+	return nil
 }

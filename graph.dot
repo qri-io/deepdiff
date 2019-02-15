@@ -1,43 +1,56 @@
 digraph {
-  subgraph t1 {
-    t1 [label=".", tooltip="weight: 58"];
-    t1 -> t1baz;
-    t1 -> t1foo;
+  subgraph cluster_t1 {
+    label="t1";
+    t1 [label="t1/", tooltip="weight: 58"];
     t1 -> t1a;
     t1 -> t1bar;
-    t1baz [label="..baz", tooltip="weight: 45"];
+    t1 -> t1baz;
+    t1 -> t1foo;
+    t1baz [label="t1//baz", tooltip="weight: 45"];
     t1baz -> t1baza;
     t1baz -> t1baze;
     t1baz -> t1bazg;
-    t1baza [label="..baz.a", tooltip="weight: 25"];
+    t1baza [label="t1//baz/a", tooltip="weight: 25"];
+    t1baza -> t1bazab;
     t1baza -> t1bazac;
     t1baza -> t1bazad;
-    t1baza -> t1bazab;
-    t1foo [label="..foo", tooltip="weight: 4"];
+    t1foo [label="t1//foo", tooltip="weight: 4"];
     t1foo -> t1foo0;
     t1foo -> t1foo1;
     t1foo -> t1foo2;
   }
-  subgraph t2 {
-    t2 [label=".", tooltip="weight: 76"];
-    t2 -> t2a;
-    t2 -> t2bar;
+  subgraph cluster_t2 {
+    label="t2";
+    t2 [label="t2/", tooltip="weight: 76"];
     t2 -> t2baz;
     t2 -> t2foo;
-    t2baz [label="..baz", tooltip="weight: 64"];
+    t2 -> t2a;
+    t2 -> t2bar;
+    t2baz [label="t2//baz", tooltip="weight: 64"];
     t2baz -> t2baze;
     t2baz -> t2bazf;
     t2baz -> t2baza;
-    t2baza [label="..baz.a", tooltip="weight: 25"];
+    t2baza [label="t2//baz/a", tooltip="weight: 25"];
     t2baza -> t2bazab;
     t2baza -> t2bazac;
     t2baza -> t2bazad;
-    t2foo [label="..foo", tooltip="weight: 4"];
-    t2foo -> t2foo2;
+    t2foo [label="t2//foo", tooltip="weight: 4"];
     t2foo -> t2foo0;
     t2foo -> t2foo1;
+    t2foo -> t2foo2;
   }
-    t2baz -> t1baz[color=red,penwidth=1.0];
-    t2baza -> t1baza[color=red,penwidth=1.0];
-    t2foo -> t1foo[color=red,penwidth=1.0];
+
+  t2 -> t1[color=red,penwidth=1.0];
+  t2a -> t1a[color=red,penwidth=1.0];
+  t2bar -> t1bar[color=red,penwidth=1.0];
+  t2baz -> t1baz[color=red,penwidth=1.0];
+  t2baza -> t1baza[color=red,penwidth=1.0];
+  t2bazab -> t1bazab[color=red,penwidth=1.0];
+  t2bazac -> t1bazac[color=red,penwidth=1.0];
+  t2bazad -> t1bazad[color=red,penwidth=1.0];
+  t2baze -> t1baze[color=red,penwidth=1.0];
+  t2foo -> t1foo[color=red,penwidth=1.0];
+  t2foo0 -> t1foo0[color=red,penwidth=1.0];
+  t2foo1 -> t1foo1[color=red,penwidth=1.0];
+  t2foo2 -> t1foo2[color=red,penwidth=1.0];
 }

@@ -54,9 +54,10 @@ func TestDiffDotGraph(t *testing.T) {
 
 	t1, t2, t1Nodes := prepTrees(a, b)
 	queueMatch(t1Nodes, t2)
+	optimize(t1, t2)
 
 	mkID := func(pfx string, n Node) string {
-		id := strings.Replace(path(n), ".", "", -1)
+		id := strings.Replace(path(n), "/", "", -1)
 		if id == pfx {
 			id = "root"
 		}
@@ -66,9 +67,10 @@ func TestDiffDotGraph(t *testing.T) {
 	buf := &bytes.Buffer{}
 	fmt.Fprintf(buf, "digraph {\n")
 
-	fmt.Fprintf(buf, "  subgraph t1 {\n")
+	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
+	fmt.Fprintf(buf, "    label=\"t1\";\n")
 
-	walk(t1, "", func(p string, n Node) {
+	walk(t1, "t1", func(p string, n Node) {
 		if cmp, ok := n.(Compound); ok {
 			pID := mkID("t1", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
@@ -79,8 +81,9 @@ func TestDiffDotGraph(t *testing.T) {
 	})
 	fmt.Fprintf(buf, "  }\n")
 
-	fmt.Fprintf(buf, "  subgraph t2 {\n")
-	walk(t2, "", func(p string, n Node) {
+	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
+	fmt.Fprintf(buf, "    label=\"t2\";\n")
+	walk(t2, "t2", func(p string, n Node) {
 		if cmp, ok := n.(Compound); ok {
 			pID := mkID("t2", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
@@ -89,14 +92,12 @@ func TestDiffDotGraph(t *testing.T) {
 			}
 		}
 	})
-	fmt.Fprintf(buf, "  }\n")
+	fmt.Fprintf(buf, "  }\n\n")
 
 	walk(t2, "", func(p string, n Node) {
-		if cmp, ok := n.(Compound); ok {
-			nID := mkID("t2", cmp)
-			if cmp.Match() != nil {
-				fmt.Fprintf(buf, "    %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", cmp.Match()))
-			}
+		nID := mkID("t2", n)
+		if n.Match() != nil {
+			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))
 		}
 	})
 
