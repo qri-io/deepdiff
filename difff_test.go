@@ -103,7 +103,7 @@ func TestDiffDotGraph(t *testing.T) {
 
 	fmt.Fprintf(buf, "}")
 
-	ioutil.WriteFile("graph.dot", buf.Bytes(), os.ModePerm)
+	ioutil.WriteFile("testdata/graph.dot", buf.Bytes(), os.ModePerm)
 }
 
 func TestBasicDiff(t *testing.T) {
@@ -253,5 +253,45 @@ func BenchmarkDiff1(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {
 		Diff(src, dst)
+	}
+}
+
+func BenchmarkDiffDatasets(b *testing.B) {
+	var (
+		data1 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmbwJNx88xNknXYewLCVBVJqbZ5oaiffr4WYDoCJAuCZ93","qri":"cm:0","signature":"TUREFCfoKEf5J189c0jdKfleRYsGZm8Q6sm6g6lJctXGDDM8BGdpSVjMltGTmmrtN6qtQJKRail5ceG325Rb8hLYoMe4926gXZNWBlMfD0yBHSjo81LsE25UqVeloU2W19Z1MNOrLTDPDRBoM0g3vyJLykGQ0UPRqpUvXNod0E5ONZOKGrQpByp113h12yiAjsiCBR6sAfIScNpcyjzkiDhBCCbMy9cGfMVK8q7wNCmcC41zguGhvv1biDoE+MEVDc1QPN1dYeEaDsvaRu5jWSv44zhVdC3lZtlT8R9qArk8OQVW798ctQ6NJ5kCiZ3C6Z19VPrptr85oknoNNaYxA==","timestamp":"2019-02-04T14:26:43.158109Z","title":"created dataset"},"name":"test_1","path":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj/dataset.json","peername":"b5","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
+		data2 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmVZrXZ2d6DF11BL7QLJ8AYFYaNiLgAWVEshZ3HB5ogZJS","qri":"cm:0","signature":"CppvSyFkaLNIY3lIOGxq7ybA18ZzJbgrF7XrIgrxi7pwKB3RGjriaCqaqTGNMTkdJCATN/qs/Yq4IIbpHlapIiwfzVHFUO8m0a2+wW0DHI+y1HYsRvhg3+LFIGHtm4M+hqcDZg9EbNk8weZI+Q+FPKk6VjPKpGtO+JHV+nEFovFPjS4XMMoyuJ96KiAEeZISuF4dN2CDSV+WC93sMhdPPAQJJZjZX+3cc/fOaghOkuhedXaA0poTVJQ05aAp94DyljEnysuS7I+jfNrsE/6XhtazZnOSYX7e0r1PJwD7OdoZYRH73HnDk+Q9wg6RrpU7EehF39o4UywyNGAI5yJkxg==","timestamp":"2019-02-11T17:50:20.501283Z","title":"forced update"},"name":"test_1","path":"/ipfs/QmaAuKZezio5knAFXU4krPcZfBWHnHDWWKEX32Ne9v6niQ/dataset.json","peername":"b5","previousPath":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
+		t1    interface{}
+		t2    interface{}
+	)
+	if err := json.Unmarshal(data1, &t1); err != nil {
+		b.Fatal(err)
+	}
+	if err := json.Unmarshal(data2, &t2); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		Diff(t1, t2)
+	}
+}
+
+func BenchmarkDiff5MB(b *testing.B) {
+	f1, err := os.Open("testdata/airport_codes.json")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var t1 map[string]interface{}
+	if err := json.NewDecoder(f1).Decode(&t1); err != nil {
+		b.Fatal(err)
+	}
+	f2, err := os.Open("testdata/airport_codes_2.json")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var t2 map[string]interface{}
+	if err := json.NewDecoder(f2).Decode(&t2); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		Diff(t1, t2)
 	}
 }
