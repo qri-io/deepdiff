@@ -1,40 +1,3 @@
-// Package difff calculates the differences of document trees consisting of the
-// standard go types created by unmarshaling from JSON, consisting of two
-// complex types:
-//   * map[string]interface{}
-//   * []interface{}
-// and five scalar types:
-//   * string, int, float64, bool, nil
-//
-// difff is based off an algorithm designed for diffing XML documents outlined in:
-//    Detecting Changes in XML Documents by Grégory Cobéna & Amélie Marian
-//
-// The paper describes an algorithm for generating an edit script that transitions
-// between two states of tree-type data structures (XML). The general
-// approach is as follows: For two given tree states, generate a diff script
-// as a set of Deltas in 6 steps:
-//
-// 1. register in a map a unique signature (hash value) for every
-//    subtree of the d1 (old) document
-// 2. consider every subtree in d2 document, starting from the
-//    largest. check if it is identitical to some the subtrees in
-//    d1, if so match both subtrees.
-// 3. attempt to match the parents of two matched subtrees
-//    by checking labels (in our case, types of parent object or array)
-//    controlling for bad matches based on length of path to the
-//    ancestor and the weight of the matching subtrees. eg: a large
-//    subtree may force the matching of its ancestors up to the root
-//    a small subtree may not even force matching of its parent
-// 4. Consider the largest subtrees of d2 in order. If one candidate
-//    has it's parent already matched to the parent of the considered
-//    node, it is certianly the best candidate.
-// 5. At this point we might have matched all of d2. A node may not
-//    match b/c its been inserted, or we missed matching it. We can now
-//    do peephole optimization pass to retry some of the rejected nodes
-//    once no more matchings can be obtained, unmatched nodes in d2
-//    correspond to inserted nodes.
-// 6. consider each matching node and decide if the node is at its right
-//    place, or whether it has been moved.
 package difff
 
 import (
@@ -70,9 +33,9 @@ func Diff(d1, d2 interface{}) ([]*Delta, error) {
 type DeltaType string
 
 const (
-	// DTRemove means making the children of a node
+	// DTDelete means making the children of a node
 	// become the children of a node's parent
-	DTRemove = DeltaType("remove")
+	DTDelete = DeltaType("delete")
 	// DTInsert is the compliment of deleting, adding
 	// children of a parent node to a new node, and making
 	// that node a child of the original parent
@@ -96,15 +59,24 @@ type Delta struct {
 }
 
 func path(n Node) string {
-	path := []string{n.Name()}
+	var path []string
 	for {
-		n = n.Parent()
-		if n == nil {
+		if n == nil || n.Name() == "" {
 			break
 		}
 		path = append([]string{n.Name()}, path...)
+		n = n.Parent()
 	}
 	return "/" + strings.Join(path, "/")
+}
+
+func rootNode(n Node) Node {
+	for {
+		if n.Parent() == nil {
+			return n
+		}
+		n = n.Parent()
+	}
 }
 
 // NewHash returns a new hash interface, wrapped in a function for easy
@@ -135,6 +107,27 @@ const (
 	NTNull
 )
 
+func (nt NodeType) String() string {
+	switch nt {
+	case NTObject:
+		return "Object"
+	case NTArray:
+		return "Array"
+	case NTString:
+		return "String"
+	case NTFloat:
+		return "Float"
+	case NTInt:
+		return "Int"
+	case NTBool:
+		return "Bool"
+	case NTNull:
+		return "Null"
+	default:
+		return "Unknown"
+	}
+}
+
 type Node interface {
 	Type() NodeType
 	Hash() []byte
@@ -148,12 +141,11 @@ type Node interface {
 
 type Compound interface {
 	Node
-	Children() map[string]Node
+	Children() []Node
 	Child(key string) Node
 }
 
-type compound struct {
-	t      NodeType
+type object struct {
 	name   string
 	hash   []byte
 	parent Node
@@ -164,16 +156,53 @@ type compound struct {
 	children map[string]Node
 }
 
-func (c compound) Type() NodeType            { return c.t }
-func (c compound) Name() string              { return c.name }
-func (c compound) Hash() []byte              { return c.hash }
-func (c compound) Weight() int               { return c.weight }
-func (c compound) Parent() Node              { return c.parent }
-func (c compound) Value() interface{}        { return c.value }
-func (c compound) Match() Node               { return c.match }
-func (c *compound) SetMatch(n Node)          { c.match = n }
-func (c compound) Children() map[string]Node { return c.children }
-func (c compound) Child(name string) Node    { return c.children[name] }
+func (o object) Type() NodeType     { return NTObject }
+func (o object) Name() string       { return o.name }
+func (o object) Hash() []byte       { return o.hash }
+func (o object) Weight() int        { return o.weight }
+func (o object) Parent() Node       { return o.parent }
+func (o object) Value() interface{} { return o.value }
+func (o object) Match() Node        { return o.match }
+func (o *object) SetMatch(n Node)   { o.match = n }
+func (o object) Children() []Node {
+	nodes := make([]Node, len(o.children))
+	i := 0
+	for _, ch := range o.children {
+		nodes[i] = ch
+		i++
+	}
+	return nodes
+}
+func (o object) Child(name string) Node { return o.children[name] }
+
+type array struct {
+	name   string
+	hash   []byte
+	parent Node
+	weight int
+	value  interface{}
+	match  Node
+
+	children []Node
+}
+
+func (c array) Type() NodeType     { return NTArray }
+func (c array) Name() string       { return c.name }
+func (c array) Hash() []byte       { return c.hash }
+func (c array) Weight() int        { return c.weight }
+func (c array) Parent() Node       { return c.parent }
+func (c array) Value() interface{} { return c.value }
+func (c array) Match() Node        { return c.match }
+func (c *array) SetMatch(n Node)   { c.match = n }
+func (c array) Children() []Node   { return c.children }
+func (c array) Child(name string) Node {
+	for _, ch := range c.children {
+		if ch.Name() == name {
+			return ch
+		}
+	}
+	return nil
+}
 
 type scalar struct {
 	t      NodeType
@@ -276,11 +305,10 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 		}
 	case []interface{}:
 		hasher := NewHash()
-		arr := &compound{
-			t:        NTArray,
+		arr := &array{
 			name:     name,
 			parent:   parent,
-			children: map[string]Node{},
+			children: make([]Node, len(x)),
 			value:    v,
 		}
 
@@ -288,7 +316,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 			name := strconv.Itoa(i)
 			node := tree(v, name, arr, nodes)
 			hasher.Write(node.Hash())
-			arr.children[name] = node
+			arr.children[i] = node
 		}
 		arr.hash = hasher.Sum(nil)
 
@@ -299,8 +327,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 		n = arr
 	case map[string]interface{}:
 		hasher := NewHash()
-		obj := &compound{
-			t:        NTObject,
+		obj := &object{
 			name:     name,
 			parent:   parent,
 			children: map[string]Node{},
@@ -437,13 +464,15 @@ func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 }
 
 func optimize(t1, t2 Node) {
-	walk(t1, "", func(p string, n Node) {
+	walk(t1, "", func(p string, n Node) bool {
 		propagateMatchToParent(n)
 		propagateMatchToChildren(n)
+		return true
 	})
-	walk(t2, "", func(p string, n Node) {
+	walk(t2, "", func(p string, n Node) bool {
 		propagateMatchToParent(n)
 		propagateMatchToChildren(n)
+		return true
 	})
 }
 
@@ -477,8 +506,8 @@ func propagateMatchToChildren(n Node) {
 		if n2, ok := n.Match().(Compound); ok {
 			if n1.Type() == NTObject && n2.Type() == NTObject {
 				// match any key names
-				for name, n1ch := range n1.Children() {
-					if n2ch := n2.Child(name); n2ch != nil {
+				for _, n1ch := range n1.Children() {
+					if n2ch := n2.Child(n1ch.Name()); n2ch != nil {
 						n2ch.SetMatch(n1ch)
 					}
 				}
@@ -486,10 +515,10 @@ func propagateMatchToChildren(n Node) {
 			if n1.Type() == NTArray && n2.Type() == NTArray && len(n1.Children()) == len(n2.Children()) {
 				// if arrays are the same length, match all children
 				// b/c these are arrays, no names should be missing, safe to skip check
-				for name, n1ch := range n1.Children() {
-					n2ch := n2.Child(name)
+				for _, n1ch := range n1.Children() {
+					n2ch := n2.Child(n1ch.Name())
 					n2ch.SetMatch(n1ch)
-					n1ch.SetMatch(n1ch)
+					n1ch.SetMatch(n2ch)
 				}
 			}
 		}
@@ -503,10 +532,12 @@ func computeDeltas(t1, t2 Node) []*Delta {
 	return ds
 }
 
-func walk(tree Node, path string, fn func(path string, n Node)) {
-	path += fmt.Sprintf("/%s", tree.Name())
-	fn(path, tree)
-	if cmp, ok := tree.(Compound); ok {
+func walk(tree Node, path string, fn func(path string, n Node) bool) {
+	if tree.Name() != "" {
+		path += fmt.Sprintf("/%s", tree.Name())
+	}
+	kontinue := fn(path, tree)
+	if cmp, ok := tree.(Compound); kontinue && ok {
 		for _, n := range cmp.Children() {
 			walk(n, path, fn)
 		}
@@ -515,36 +546,54 @@ func walk(tree Node, path string, fn func(path string, n Node)) {
 
 // calculate inserts, changes, & deletes
 func calcICDs(t1, t2 Node) (dts []*Delta) {
-	walk(t1, "", func(path string, n Node) {
+	walk(t1, "", func(p string, n Node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
-				Type:    DTRemove,
-				SrcPath: path,
+				Type:    DTDelete,
+				SrcPath: path(n),
 				SrcVal:  n.Value(),
 			}
 			dts = append(dts, delta)
+
+			// at this point we have the most general insert possible. By
+			// returning false here we stop traversing to any existing children
+			// avoiding redundant inserts already described by the parent
+			return false
 		}
+		return true
 	})
 
-	walk(t2, "", func(path string, n Node) {
+	walk(t2, "", func(p string, n Node) bool {
 		match := n.Match()
 		if match == nil {
 			delta := &Delta{
 				Type:    DTInsert,
-				DstPath: path,
+				DstPath: path(n),
 				DstVal:  n.Value(),
 			}
 			dts = append(dts, delta)
-		} else {
-			// check if value is scalar
-			if _, ok := n.(Compound); !ok {
-				if delta := compareScalar(match, n, path); delta != nil {
-					dts = append(dts, delta)
-				}
+
+			// at this point we have the most general insert possible. By
+			// returning false here we stop traversing to any existing children
+			// avoiding redundant inserts already described by the parent
+			return false
+		}
+
+		// check if value is scalar, creating a change delta if so
+		// TODO (b5): this needs to be a check to see if it's a leaf node
+		// (eg, empty object is a leaf node)
+		if _, ok := n.(Compound); !ok {
+			if delta := compareScalar(match, n, p); delta != nil {
+				dts = append(dts, delta)
 			}
 		}
+		return true
 	})
 	return dts
+}
+
+func removeArrayElement(n Node, idx int) {
+
 }
 
 func calcMoves(ds []*Delta) {
@@ -560,51 +609,40 @@ func organize([]*Delta) {
 // lcss calculates the largest (order preserving) common subsequence between
 // two matched parent Compond nodes
 // variation on the longest-common-substring problem: https://en.wikipedia.org/wiki/Longest_common_substring_problem
-func lcss(t1, t2 Compound) []Node {
-	// lenT1 := len(t1.Children())
-	// lenT2 := len(t2.Children())
-	// L := [lenT1+1][lenT2+1]int
+func lcss(a, b []Node) (subseq []int) {
+	// // add suffixes
+	// a = append(a, &scalar{})
+	// b = append(b, &scalar{})
+	// l := make([][]int, len(a))
+	// z := 0
 
-	// /* Following steps build L[m+1][n+1] in bottom up fashion. Note
-	// 	 that L[i][j] contains length of LCS of X[0..i-1] and Y[0..j-1] */
-	// for i :=0; i<=lenT1; i++  {
-	// 	for j := 0; j<=lenT2; j++ {
-	// 		if i == 0 || j == 0 {
-	// 			L[i][j] = 0
-	// 		} else if X[i-1] == Y[j-1] {
-	// 			L[i][j] = L[i-1][j-1] + 1
+	// for i := 0; i < len(a); i++ {
+	// 	l[i] = make([]int, len(b))
+	// 	for j := 0; j < len(b); j++ {
+
+	// 		// TODO - use deeper equality test here?
+	// 		if a[i].Match() != nil && b[j].Match() != nil {
+	// 			if i == 0 || j == 0 {
+	// 				l[i][j] = 1
+	// 			} else {
+	// 				l[i][j] = l[i-1][j-1] + 1
+	// 			}
+
+	// 			if l[i][j] > z {
+	// 				z = l[i][j]
+	// 				subseq = a[i-z+1 : i]
+	// 				subseq = []int{}
+	// 			} else if l[i][j] == z {
+	// 				subseq += a[i-z+1 : i]
+	// 			}
+
 	// 		} else {
-	// 			L[i][j] = max(L[i-1][j], L[i][j-1])
+	// 			l[i][j] = 0
 	// 		}
 	// 	}
 	// }
 
-	// // Following code is used to print LCS
-	// index := L[m][n]
-
-	// // Create a character array to store the lcs string
-	// lcs := ""
-	// lcs[index] = ''  // Set the terminating character
-
-	// // Start from the right-most-bottom-most corner and
-	// // one by one store characters in lcs[]
-	// i, j := m, n
-	// if i > 0 && j > 0 {
-	// 	 // If current character in X[] and Y are same, then
-	// 	 // current character is part of LCS
-	// 	 if X[i-1] == Y[j-1]  {
-	// 			 lcs[index-1] = X[i-1]; // Put current character in result
-	// 			 i--; j--; index--;     // reduce values of i, j and index
-	// 	 } else if L[i-1][j] > L[i][j-1] {
-	// 		// If not same, then find the larger of two and
-	// 		// go in the direction of larger value
-	// 			i--
-	// 	 } else {
-	// 			j--
-	// 	 }
-	// }
-
-	return nil
+	return
 }
 
 func compareScalar(n1, n2 Node, n2Path string) *Delta {
@@ -619,6 +657,7 @@ func compareScalar(n1, n2 Node, n2Path string) *Delta {
 	if !reflect.DeepEqual(n1.Value(), n2.Value()) {
 		return &Delta{
 			Type:    DTChange,
+			SrcPath: path(n1),
 			DstPath: n2Path,
 			SrcVal:  n1.Value(),
 			DstVal:  n2.Value(),

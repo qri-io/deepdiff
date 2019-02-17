@@ -70,7 +70,7 @@ func TestDiffDotGraph(t *testing.T) {
 	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
 	fmt.Fprintf(buf, "    label=\"t1\";\n")
 
-	walk(t1, "t1", func(p string, n Node) {
+	walk(t1, "t1", func(p string, n Node) bool {
 		if cmp, ok := n.(Compound); ok {
 			pID := mkID("t1", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
@@ -78,12 +78,13 @@ func TestDiffDotGraph(t *testing.T) {
 				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t1", ch))
 			}
 		}
+		return true
 	})
 	fmt.Fprintf(buf, "  }\n")
 
 	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
 	fmt.Fprintf(buf, "    label=\"t2\";\n")
-	walk(t2, "t2", func(p string, n Node) {
+	walk(t2, "t2", func(p string, n Node) bool {
 		if cmp, ok := n.(Compound); ok {
 			pID := mkID("t2", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
@@ -91,14 +92,16 @@ func TestDiffDotGraph(t *testing.T) {
 				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t2", ch))
 			}
 		}
+		return true
 	})
 	fmt.Fprintf(buf, "  }\n\n")
 
-	walk(t2, "", func(p string, n Node) {
+	walk(t2, "", func(p string, n Node) bool {
 		nID := mkID("t2", n)
 		if n.Match() != nil {
 			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))
 		}
+		return true
 	})
 
 	fmt.Fprintf(buf, "}")
@@ -117,19 +120,20 @@ func TestBasicDiff(t *testing.T) {
 		panic(err)
 	}
 
+	// TODO (b5): test output
 	// Diff(a, b)
-	ds, err := Diff(a, b)
+	_, err := Diff(a, b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := json.MarshalIndent(ds, "", "  ")
-	fmt.Println(string(data))
+	// data, _ := json.MarshalIndent(ds, "", "  ")
+	// fmt.Println(string(data))
 }
 
 type TestCase struct {
-	description string
-	src, dst    string // express test cases as json strings
-	expect      []*Delta
+	description string   // description of what test is checking
+	src, dst    string   // express test cases as json strings
+	expect      []*Delta // expected output
 }
 
 func RunTestCases(t *testing.T, cases []TestCase) {
@@ -159,7 +163,9 @@ func RunTestCases(t *testing.T, cases []TestCase) {
 
 func CompareDiffs(a, b []*Delta) error {
 	if len(a) != len(b) {
-		return fmt.Errorf("length mismatch: %d != %d", len(a), len(b))
+		ad, _ := json.MarshalIndent(a, "", " ")
+		bd, _ := json.MarshalIndent(b, "", " ")
+		return fmt.Errorf("length mismatch: %d != %d\na: %v\nb: %v", len(a), len(b), string(ad), string(bd))
 	}
 
 	for i, delt := range a {
@@ -176,49 +182,60 @@ func CompareDeltas(a, b *Delta) error {
 		return fmt.Errorf("Type mismatch. %T != %T", a.Type, b.Type)
 	}
 
-	// TODO - compare SrcPaths & DstPaths
+	if a.SrcPath != b.SrcPath {
+		return fmt.Errorf("SrcPath mismatch. %s != %s", a.SrcPath, b.SrcPath)
+	}
+
+	if a.DstPath != b.DstPath {
+		return fmt.Errorf("DstPath mismatch. %s != %s", a.DstPath, b.DstPath)
+	}
 
 	if !reflect.DeepEqual(a.SrcVal, b.SrcVal) {
-		return fmt.Errorf("SrcVal mismatch")
+		return fmt.Errorf("SrcVal mismatch. %v (%T) != %v (%T)", a.SrcVal, a.SrcVal, b.SrcVal, b.SrcVal)
+	}
+	if !reflect.DeepEqual(a.DstVal, b.DstVal) {
+		return fmt.Errorf("DstVal mismatch. %v != %v", a.DstVal, b.DstVal)
 	}
 
 	return nil
 }
 
-func TestQriUseCases(t *testing.T) {
+func TestBasicArrayDiffing(t *testing.T) {
 	cases := []TestCase{
 		{
-			"detect scalar change",
+			"scalar change",
 			`[[0,1,2]]`,
 			`[[0,1,3]]`,
 			[]*Delta{
-				{Type: DTChange, SrcPath: "0.2", DstPath: "0.2", SrcVal: 2, DstVal: 3},
+				{Type: DTChange, SrcPath: "/0/2", DstPath: "/0/2", SrcVal: float64(2), DstVal: float64(3)},
 			},
 		},
 		{
-			"detect insert",
+			"insert",
 			`[[1]]`,
 			`[[1],[2]]`,
 			[]*Delta{
-				{Type: DTInsert, SrcPath: "0.0", DstPath: "0.1", SrcVal: "", DstVal: []interface{}{2}},
+				// TODO (b5): Need to decide on what expected insert path for arrays is. should it be the index
+				// to *begin* insertion at (aka the index just before what will be the index of the new insertion)?
+				{Type: DTInsert, SrcPath: "", DstPath: "/1", SrcVal: nil, DstVal: []interface{}{float64(2)}},
 			},
 		},
 		{
-			"detect remove",
+			"delete",
 			`[[1],[2],[3]]`,
 			`[[1],[3]]`,
 			[]*Delta{
-				{Type: DTRemove, SrcPath: "0.1", DstPath: "", SrcVal: []interface{}{2}, DstVal: nil},
+				{Type: DTDelete, SrcPath: "/1", DstPath: "", SrcVal: []interface{}{float64(2)}, DstVal: nil},
 			},
 		},
-		{
-			"detect move",
-			`[[1],[2],[3]]`,
-			`[[1],[3],[2]]`,
-			[]*Delta{
-				{Type: DTMove, SrcPath: "0.1", DstPath: "0.2", SrcVal: []interface{}{2}, DstVal: []interface{}{2}},
-			},
-		},
+		// {
+		// 	"move",
+		// 	`[[1],[2],[3]]`,
+		// 	`[[1],[3],[2]]`,
+		// 	[]*Delta{
+		// 		{Type: DTMove, SrcPath: "0.1", DstPath: "0.2", SrcVal: []interface{}{2}, DstVal: []interface{}{2}},
+		// 	},
+		// },
 	}
 
 	RunTestCases(t, cases)
