@@ -200,10 +200,10 @@ func CompareDeltas(a, b *Delta) error {
 	return nil
 }
 
-func TestBasicArrayDiffing(t *testing.T) {
+func TestBasicDiffing(t *testing.T) {
 	cases := []TestCase{
 		{
-			"scalar change",
+			"scalar change array",
 			`[[0,1,2]]`,
 			`[[0,1,3]]`,
 			[]*Delta{
@@ -211,7 +211,15 @@ func TestBasicArrayDiffing(t *testing.T) {
 			},
 		},
 		{
-			"insert",
+			"scalar change object",
+			`{"a":[0,1,2]}`,
+			`{"a":[0,1,3]}`,
+			[]*Delta{
+				{Type: DTChange, SrcPath: "/a/2", DstPath: "/a/2", SrcVal: float64(2), DstVal: float64(3)},
+			},
+		},
+		{
+			"insert array",
 			`[[1]]`,
 			`[[1],[2]]`,
 			[]*Delta{
@@ -221,19 +229,45 @@ func TestBasicArrayDiffing(t *testing.T) {
 			},
 		},
 		{
-			"delete",
+			"insert object",
+			`{"a":[1]}`,
+			`{"a":[1],"b":[2]}`,
+			[]*Delta{
+				// TODO (b5): Need to decide on what expected insert path for arrays is. should it be the index
+				// to *begin* insertion at (aka the index just before what will be the index of the new insertion)?
+				{Type: DTInsert, SrcPath: "", DstPath: "/b", SrcVal: nil, DstVal: []interface{}{float64(2)}},
+			},
+		},
+		{
+			"delete array",
 			`[[1],[2],[3]]`,
 			`[[1],[3]]`,
 			[]*Delta{
 				{Type: DTDelete, SrcPath: "/1", DstPath: "", SrcVal: []interface{}{float64(2)}, DstVal: nil},
 			},
 		},
+		{
+			"delete object",
+			`{"a":[1],"b":[2],"c":[3]}`,
+			`{"a":[1],"c":[3]}`,
+			[]*Delta{
+				{Type: DTDelete, SrcPath: "/b", DstPath: "", SrcVal: []interface{}{float64(2)}, DstVal: nil},
+			},
+		},
+		{
+			"different parent move array",
+			`[[1],[2],[3]]`,
+			`[[1],[2,[3]]]`,
+			[]*Delta{
+				{Type: DTMove, SrcPath: "/2", DstPath: "/1/1", SrcVal: []interface{}{float64(3)}, DstVal: []interface{}{float64(3)}},
+			},
+		},
 		// {
-		// 	"move",
+		// 	"same parent move array",
 		// 	`[[1],[2],[3]]`,
 		// 	`[[1],[3],[2]]`,
 		// 	[]*Delta{
-		// 		{Type: DTMove, SrcPath: "0.1", DstPath: "0.2", SrcVal: []interface{}{2}, DstVal: []interface{}{2}},
+		// 		{Type: DTMove, SrcPath: "/2", DstPath: "/1", SrcVal: []interface{}{2}, DstVal: []interface{}{2}},
 		// 	},
 		// },
 	}

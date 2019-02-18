@@ -134,6 +134,7 @@ type Node interface {
 	Weight() int
 	Parent() Node
 	Name() string
+	SetName(string)
 	Value() interface{}
 	Match() Node
 	SetMatch(Node)
@@ -156,14 +157,15 @@ type object struct {
 	children map[string]Node
 }
 
-func (o object) Type() NodeType     { return NTObject }
-func (o object) Name() string       { return o.name }
-func (o object) Hash() []byte       { return o.hash }
-func (o object) Weight() int        { return o.weight }
-func (o object) Parent() Node       { return o.parent }
-func (o object) Value() interface{} { return o.value }
-func (o object) Match() Node        { return o.match }
-func (o *object) SetMatch(n Node)   { o.match = n }
+func (o object) Type() NodeType       { return NTObject }
+func (o object) Name() string         { return o.name }
+func (o *object) SetName(name string) { o.name = name }
+func (o object) Hash() []byte         { return o.hash }
+func (o object) Weight() int          { return o.weight }
+func (o object) Parent() Node         { return o.parent }
+func (o object) Value() interface{}   { return o.value }
+func (o object) Match() Node          { return o.match }
+func (o *object) SetMatch(n Node)     { o.match = n }
 func (o object) Children() []Node {
 	nodes := make([]Node, len(o.children))
 	i := 0
@@ -186,15 +188,16 @@ type array struct {
 	children []Node
 }
 
-func (c array) Type() NodeType     { return NTArray }
-func (c array) Name() string       { return c.name }
-func (c array) Hash() []byte       { return c.hash }
-func (c array) Weight() int        { return c.weight }
-func (c array) Parent() Node       { return c.parent }
-func (c array) Value() interface{} { return c.value }
-func (c array) Match() Node        { return c.match }
-func (c *array) SetMatch(n Node)   { c.match = n }
-func (c array) Children() []Node   { return c.children }
+func (c array) Type() NodeType       { return NTArray }
+func (c array) Name() string         { return c.name }
+func (c *array) SetName(name string) { c.name = name }
+func (c array) Hash() []byte         { return c.hash }
+func (c array) Weight() int          { return c.weight }
+func (c array) Parent() Node         { return c.parent }
+func (c array) Value() interface{}   { return c.value }
+func (c array) Match() Node          { return c.match }
+func (c *array) SetMatch(n Node)     { c.match = n }
+func (c array) Children() []Node     { return c.children }
 func (c array) Child(name string) Node {
 	for _, ch := range c.children {
 		if ch.Name() == name {
@@ -214,14 +217,15 @@ type scalar struct {
 	match  Node
 }
 
-func (s scalar) Type() NodeType     { return s.t }
-func (s scalar) Name() string       { return s.name }
-func (s scalar) Hash() []byte       { return s.hash }
-func (s scalar) Weight() int        { return s.weight }
-func (s scalar) Parent() Node       { return s.parent }
-func (s scalar) Value() interface{} { return s.value }
-func (s scalar) Match() Node        { return s.match }
-func (s *scalar) SetMatch(n Node)   { s.match = n }
+func (s scalar) Type() NodeType       { return s.t }
+func (s scalar) Name() string         { return s.name }
+func (s *scalar) SetName(name string) { s.name = name }
+func (s scalar) Hash() []byte         { return s.hash }
+func (s scalar) Weight() int          { return s.weight }
+func (s scalar) Parent() Node         { return s.parent }
+func (s scalar) Value() interface{}   { return s.value }
+func (s scalar) Match() Node          { return s.match }
+func (s *scalar) SetMatch(n Node)     { s.match = n }
 
 func prepTrees(d1, d2 interface{}) (t1, t2 Node, t1Nodes map[string][]Node) {
 	var (
@@ -550,10 +554,28 @@ func calcICDs(t1, t2 Node) (dts []*Delta) {
 		if n.Match() == nil {
 			delta := &Delta{
 				Type:    DTDelete,
-				SrcPath: path(n),
+				SrcPath: p,
 				SrcVal:  n.Value(),
 			}
 			dts = append(dts, delta)
+
+			// update t1 array values to reflect deletion so later comparisons will be
+			// accurate. only place where this really applies is parent of delete is
+			// an array (object paths will remain accurate)
+			if parent := n.Parent(); parent != nil {
+				if cmp, ok := parent.(Compound); ok && cmp.Type() == NTArray {
+					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
+					if err != nil {
+						panic(err)
+					}
+					idx := int(idx64)
+					for i, n := range cmp.Children() {
+						if i > idx {
+							n.SetName(strconv.Itoa(i - 1))
+						}
+					}
+				}
+			}
 
 			// at this point we have the most general insert possible. By
 			// returning false here we stop traversing to any existing children
@@ -568,10 +590,13 @@ func calcICDs(t1, t2 Node) (dts []*Delta) {
 		if match == nil {
 			delta := &Delta{
 				Type:    DTInsert,
-				DstPath: path(n),
+				DstPath: p,
 				DstVal:  n.Value(),
 			}
 			dts = append(dts, delta)
+
+			// TODO(b5): update sibling positions? aren't they already accurate
+			// b/c destination naming is based on the result tree?
 
 			// at this point we have the most general insert possible. By
 			// returning false here we stop traversing to any existing children
@@ -579,10 +604,23 @@ func calcICDs(t1, t2 Node) (dts []*Delta) {
 			return false
 		}
 
-		// check if value is scalar, creating a change delta if so
-		// TODO (b5): this needs to be a check to see if it's a leaf node
-		// (eg, empty object is a leaf node)
+		// If we have a match & parents are different, this corresponds to a move
+		if path(match.Parent()) != path(n.Parent()) {
+			delta := &Delta{
+				Type:    DTMove,
+				DstPath: p,
+				SrcPath: path(match),
+				SrcVal:  match.Value(),
+				DstVal:  n.Value(),
+			}
+			dts = append(dts, delta)
+			return false
+		}
+
 		if _, ok := n.(Compound); !ok {
+			// check if value is scalar, creating a change delta if so
+			// TODO (b5): this needs to be a check to see if it's a leaf node
+			// (eg, empty object is a leaf node)
 			if delta := compareScalar(match, n, p); delta != nil {
 				dts = append(dts, delta)
 			}
