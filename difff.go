@@ -1,6 +1,7 @@
 package difff
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"hash"
@@ -530,9 +531,7 @@ func propagateMatchToChildren(n Node) {
 }
 
 func computeDeltas(t1, t2 Node) []*Delta {
-	ds := calcICDs(t1, t2)
-	calcMoves(ds)
-	organize(ds)
+	ds := calcDeltas(t1, t2)
 	return ds
 }
 
@@ -548,8 +547,8 @@ func walk(tree Node, path string, fn func(path string, n Node) bool) {
 	}
 }
 
-// calculate inserts, changes, & deletes
-func calcICDs(t1, t2 Node) (dts []*Delta) {
+// calculate inserts, changes, deletes, & moves
+func calcDeltas(t1, t2 Node) (dts []*Delta) {
 	walk(t1, "", func(p string, n Node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
@@ -595,8 +594,23 @@ func calcICDs(t1, t2 Node) (dts []*Delta) {
 			}
 			dts = append(dts, delta)
 
-			// TODO(b5): update sibling positions? aren't they already accurate
-			// b/c destination naming is based on the result tree?
+			// update t1 array values to reflect insertion so later comparisons will be
+			// accurate. only place where this really applies is parent of insert is
+			// an array (object paths will remain accurate)
+			if parent := n.Parent(); parent != nil && parent.Type() == NTArray {
+				if match := parent.Match(); match != nil {
+					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
+					if err != nil {
+						panic(err)
+					}
+					idx := int(idx64)
+					for i, n := range match.(Compound).Children() {
+						if i > idx {
+							n.SetName(strconv.Itoa(i + 1))
+						}
+					}
+				}
+			}
 
 			// at this point we have the most general insert possible. By
 			// returning false here we stop traversing to any existing children
@@ -627,59 +641,151 @@ func calcICDs(t1, t2 Node) (dts []*Delta) {
 		}
 		return true
 	})
+
+	walk(t2, "", func(p string, n Node) bool {
+		if n.Type() == NTArray && n.Match() != nil {
+			// matches to same array-type parent require checking for shuffles within the parent
+			// *expensive*
+			deltas := calcReorderDeltas(n.Match().(Compound).Children(), n.(Compound).Children())
+			if deltas != nil {
+				dts = append(dts, deltas...)
+				return false
+			}
+		}
+		return true
+	})
+
 	return dts
 }
 
-func removeArrayElement(n Node, idx int) {
-
+// calcReorderDeltas creates deltas that describes moves within the same parent
+// it starts by calculates the largest (order preserving) common subsequence between
+// two matched parent Compound nodes
+// https://en.wikipedia.org/wiki/Longest_common_subsequence_problem
+//
+func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
+	nodes := movedBNodes(a, b)
+	for _, n := range nodes {
+		fmt.Println("MATCH")
+		fmt.Printf("%p %p, %s %s %v %v\n", n, n.Match(), path(n), path(n.Match()), n.Value(), n.Match().Value())
+		mv := &Delta{
+			Type:    DTMove,
+			SrcPath: path(n.Match()),
+			DstPath: path(n),
+			DstVal:  n.Value(),
+		}
+		deltas = append(deltas, mv)
+	}
+	return
 }
 
-func calcMoves(ds []*Delta) {
-	// find all nodes that are matched but have non-matching parents
+func movedBNodes(a, b []Node) []Node {
+	m := len(a) + 1
+	n := len(b) + 1
+	c := make([][]int, m)
+	c[0] = make([]int, n)
+	fmt.Println("-- moved --", len(a), len(b))
 
-	// calculate all internal moves: matching nodes that have the same parent
+	for i := 1; i < m; i++ {
+		fmt.Printf("%d\n", i)
+		c[i] = make([]int, n)
+		for j := 1; j < n; j++ {
+			fmt.Printf("%p %p | %p %p\n", a[i-1], b[j-1], a[i-1].Match(), b[j-1].Match())
+			if a[i-1].Match() != nil && b[j-1].Match() != nil {
+				// reflect.DeepEqual(a[i-1].Value(), b[j-1].Value())
+				// a[i-1].Name() == b[j-1].Name()
+				if bytes.Equal(a[i-1].Hash(), b[j-1].Hash()) {
+					c[i][j] = c[i-1][j-1] + 1
+				} else {
+					c[i][j] = c[i][j-1]
+					if c[i-1][j] > c[i][j] {
+						c[i][j] = c[i-1][j]
+					}
+				}
+			}
+		}
+	}
 
+	// TODO (b5): a & b *should* be the same length, which would mean a bottom-right
+	// common-value that's equal to the length of a should mean list equality
+	// which means we need to bail early b/c no moves exist
+	if c[m-1][n-1] == len(a) || c[m-1][n-1] == len(b) {
+		return nil
+	}
+
+	for i := 0; i < m; i++ {
+		fmt.Printf("  | ")
+		for j := 0; j < n; j++ {
+			fmt.Printf("%d ", c[i][j])
+		}
+		fmt.Println("|")
+	}
+
+	var ss []Node
+	backtrack(&ss, c, a, b, m-1, n-1)
+	needCh := sortedSubsetIntersection(b, ss)
+	fmt.Println(a, b, ss, needCh)
+	return needCh
 }
 
-func organize([]*Delta) {
+func sortedSubsetIntersection(set, subset []Node) (nodes []Node) {
+	if len(set) == len(subset) {
+		return nil
+	}
+
+	c := 0
+
+SET:
+	for _, n := range set {
+		if c == len(subset) {
+			nodes = append(nodes, set[c:]...)
+			break
+		}
+
+		for _, ssn := range subset[c:] {
+			if n.Name() == ssn.Name() {
+				c++
+				continue SET
+			}
+		}
+
+		nodes = append(nodes, n)
+	}
+
+	return
 }
 
-// lcss calculates the largest (order preserving) common subsequence between
-// two matched parent Compond nodes
-// variation on the longest-common-substring problem: https://en.wikipedia.org/wiki/Longest_common_substring_problem
-func lcss(a, b []Node) (subseq []int) {
-	// // add suffixes
-	// a = append(a, &scalar{})
-	// b = append(b, &scalar{})
-	// l := make([][]int, len(a))
-	// z := 0
+// function backtrack(C[0..m,0..n], X[1..m], Y[1..n], i, j)
+//   if i = 0 or j = 0
+//       return ""
+//   if  X[i] = Y[j]
+//       return backtrack(C, X, Y, i-1, j-1) + X[i]
+//   if C[i,j-1] > C[i-1,j]
+//       return backtrack(C, X, Y, i, j-1)
+//   return backtrack(C, X, Y, i-1, j)
+func backtrack(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+	if i == 0 || j == 0 {
+		return
+	}
 
-	// for i := 0; i < len(a); i++ {
-	// 	l[i] = make([]int, len(b))
-	// 	for j := 0; j < len(b); j++ {
+	if bytes.Equal(a[i-1].Hash(), b[j-1].Hash()) {
+		// TODO (b5): I think this is where we can backtrack based on which node
+		// has the greater weight by taking, need to check
+		// if b[j].Weight() > a[i].Weight() {
+		fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
+		*ss = append([]Node{b[j-1]}, *ss...)
+		// } else {
+		// ss = append(ss, a[i])
+		// }
+		backtrack(ss, c, a, b, i-1, j-1)
+		return
+	}
+	if c[i][j-1] > c[i-1][j] {
+		backtrack(ss, c, a, b, i, j-1)
+		return
+	}
 
-	// 		// TODO - use deeper equality test here?
-	// 		if a[i].Match() != nil && b[j].Match() != nil {
-	// 			if i == 0 || j == 0 {
-	// 				l[i][j] = 1
-	// 			} else {
-	// 				l[i][j] = l[i-1][j-1] + 1
-	// 			}
-
-	// 			if l[i][j] > z {
-	// 				z = l[i][j]
-	// 				subseq = a[i-z+1 : i]
-	// 				subseq = []int{}
-	// 			} else if l[i][j] == z {
-	// 				subseq += a[i-z+1 : i]
-	// 			}
-
-	// 		} else {
-	// 			l[i][j] = 0
-	// 		}
-	// 	}
-	// }
-
+	backtrack(ss, c, a, b, i-1, j)
 	return
 }
 

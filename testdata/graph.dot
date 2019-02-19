@@ -7,13 +7,13 @@ digraph {
     t1 -> t1bar;
     t1 -> t1baz;
     t1baz [label="t1/baz", tooltip="weight: 45"];
-    t1baz -> t1baza;
     t1baz -> t1baze;
     t1baz -> t1bazg;
+    t1baz -> t1baza;
     t1baza [label="t1/baz/a", tooltip="weight: 25"];
-    t1baza -> t1bazab;
     t1baza -> t1bazac;
     t1baza -> t1bazad;
+    t1baza -> t1bazab;
     t1foo [label="t1/foo", tooltip="weight: 4"];
     t1foo -> t1foo0;
     t1foo -> t1foo1;
@@ -35,17 +35,17 @@ digraph {
     t2baz -> t2baze;
     t2baz -> t2bazf;
     t2baza [label="t2/baz/a", tooltip="weight: 25"];
+    t2baza -> t2bazab;
     t2baza -> t2bazac;
     t2baza -> t2bazad;
-    t2baza -> t2bazab;
   }
 
   t2 -> t1[color=red,penwidth=1.0];
   t2baz -> t1baz[color=red,penwidth=1.0];
   t2baza -> t1baza[color=red,penwidth=1.0];
-  t2bazab -> t1bazab[color=red,penwidth=1.0];
   t2bazac -> t1bazac[color=red,penwidth=1.0];
   t2bazad -> t1bazad[color=red,penwidth=1.0];
+  t2bazab -> t1bazab[color=red,penwidth=1.0];
   t2baze -> t1baze[color=red,penwidth=1.0];
   t2foo -> t1foo[color=red,penwidth=1.0];
   t2foo0 -> t1foo0[color=red,penwidth=1.0];
