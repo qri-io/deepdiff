@@ -584,6 +584,7 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 		return true
 	})
 
+	var parentMoves []*Delta
 	walk(t2, "", func(p string, n Node) bool {
 		match := n.Match()
 		if match == nil {
@@ -628,6 +629,32 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 				DstVal:  n.Value(),
 			}
 			dts = append(dts, delta)
+			parentMoves = append(parentMoves, delta)
+
+			// update t1 array values to reflect insertion so later comparisons will be
+			// accurate. only place where this really applies is parent of insert is
+			// an array (object paths will remain accurate)
+			if parent := n.Parent(); parent != nil && parent.Type() == NTArray {
+				if match := parent.Match(); match != nil {
+					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
+					if err != nil {
+						panic(err)
+					}
+					idx := int(idx64)
+					for i, n := range match.(Compound).Children() {
+						if i > idx {
+							n.SetName(strconv.Itoa(i + 1))
+						}
+					}
+				}
+			}
+
+			// break matching to prevent connection later on
+			match.Parent().SetMatch(nil)
+			n.Parent().SetMatch(nil)
+			// match.SetMatch(nil)
+			// n.SetMatch(nil)
+
 			return false
 		}
 
@@ -642,11 +669,15 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 		return true
 	})
 
+	var cleanups []string
 	walk(t2, "", func(p string, n Node) bool {
 		if n.Type() == NTArray && n.Match() != nil {
 			// matches to same array-type parent require checking for shuffles within the parent
 			// *expensive*
 			deltas := calcReorderDeltas(n.Match().(Compound).Children(), n.(Compound).Children())
+			for _, d := range deltas {
+				cleanups = append(cleanups, d.SrcPath, d.DstPath)
+			}
 			if deltas != nil {
 				dts = append(dts, deltas...)
 				return false
@@ -655,7 +686,18 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 		return true
 	})
 
-	return dts
+	var cleaned []*Delta
+CLEANUP:
+	for _, d := range dts {
+		for _, pth := range cleanups {
+			if d.Type == DTChange && (strings.HasPrefix(d.SrcPath, pth) || strings.HasPrefix(d.DstPath, pth)) {
+				continue CLEANUP
+			}
+		}
+		cleaned = append(cleaned, d)
+	}
+
+	return cleaned
 }
 
 // calcReorderDeltas creates deltas that describes moves within the same parent
@@ -667,7 +709,24 @@ func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 	return movedBNodes(a, b)
 }
 
-func movedBNodes(a, b []Node) []*Delta {
+func movedBNodes(allA, allB []Node) []*Delta {
+	var a, b []Node
+	for _, n := range allA {
+		// if _, ok := n.(Compound); ok {
+		if n.Match() != nil {
+			a = append(a, n)
+		}
+		// }
+	}
+
+	for _, n := range allB {
+		// if _, ok := n.(Compound); ok {
+		if n.Match() != nil {
+			b = append(b, n)
+		}
+		// }
+	}
+
 	m := len(a) + 1
 	n := len(b) + 1
 	c := make([][]int, m)
@@ -701,51 +760,54 @@ func movedBNodes(a, b []Node) []*Delta {
 		return nil
 	}
 
-	for i := 0; i < m; i++ {
-		fmt.Printf("  | ")
-		for j := 0; j < n; j++ {
-			fmt.Printf("%d ", c[i][j])
-		}
-		fmt.Println("|")
-	}
+	// for i := 0; i < m; i++ {
+	// 	fmt.Printf("  | ")
+	// 	for j := 0; j < n; j++ {
+	// 		fmt.Printf("%d ", c[i][j])
+	// 	}
+	// 	fmt.Println("|")
+	// }
 
 	var ass, bss []Node
-	backtrackRight(&ass, c, a, b, m-1, n-1)
-	backtrackLeft(&bss, c, a, b, m-1, n-1)
+	backtrackB(&ass, c, a, b, m-1, n-1)
+	backtrackA(&bss, c, a, b, m-1, n-1)
 	amv := intersect(a, ass)
 	bmv := intersect(b, bss)
 
-	fmt.Println("matches:")
-	for _, n := range a {
-		fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
-	}
-	fmt.Println("")
+	// fmt.Println("matches:")
+	// for _, n := range a {
+	// 	fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
+	// }
+	// fmt.Println("")
 
-	for _, n := range b {
-		fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
-	}
-	fmt.Println("")
+	// for _, n := range b {
+	// 	fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
+	// }
+	// fmt.Println("")
 
-	fmt.Printf("%v %v | %v %v\n", a, ass, bss, b)
-	fmt.Printf("%v | %v\n", amv, bmv)
+	// fmt.Printf("%v %v | %v %v\n", a, ass, bss, b)
+	// fmt.Printf("%v | %v\n", amv, bmv)
 
-	fmt.Println("move deltas:")
+	// fmt.Println("move deltas:")
 	var deltas []*Delta
 	for i := 0; i < len(amv); i++ {
-		// fmt.Println("MATCH")
-		// fmt.Printf("%p %p, %s %s %v %v\n", n, n.Match(), path(n), path(n.Match()), n.Value(), n.Match().Value())
 		am := amv[i]
 		bm := bmv[i]
-		fmt.Printf("A:(addr: %p name: %s value: %v, match: %p)\n", am, am.Name(), am.Value(), am.Match())
-		fmt.Printf("B:(addr: %p name: %s value: %v, match: %p)\n", bm, bm.Name(), bm.Value(), bm.Match())
 
-		mv := &Delta{
-			Type:    DTMove,
-			SrcPath: path(am),
-			DstPath: path(bm),
-			DstVal:  bm.Value(),
+		// don't add moves that have the same source & destination paths
+		// can be created by matches that move between parents
+		if path(am) != path(bm) {
+			// fmt.Printf("A:(addr: %p name: %s value: %v, match: %p)\n", am, am.Name(), am.Value(), am.Match())
+			// fmt.Printf("B:(addr: %p name: %s value: %v, match: %p)\n", bm, bm.Name(), bm.Value(), bm.Match())
+
+			mv := &Delta{
+				Type:    DTMove,
+				SrcPath: path(am),
+				DstPath: path(bm),
+				DstVal:  bm.Value(),
+			}
+			deltas = append(deltas, mv)
 		}
-		deltas = append(deltas, mv)
 	}
 
 	return deltas
@@ -787,7 +849,7 @@ SET:
 //   if C[i,j-1] > C[i-1,j]
 //       return backtrack(C, X, Y, i, j-1)
 //   return backtrack(C, X, Y, i-1, j)
-func backtrackLeft(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	if i == 0 || j == 0 {
 		return
 	}
@@ -796,24 +858,24 @@ func backtrackLeft(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 		// TODO (b5): I think this is where we can backtrack based on which node
 		// has the greater weight by taking, need to check
 		// if b[j].Weight() > a[i].Weight() {
-		fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
+		// fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
 		*ss = append([]Node{a[i-1]}, *ss...)
 		// } else {
 		// ss = append(ss, a[i])
 		// }
-		backtrackLeft(ss, c, a, b, i-1, j-1)
+		backtrackA(ss, c, a, b, i-1, j-1)
 		return
 	}
 	if c[i][j-1] > c[i-1][j] {
-		backtrackLeft(ss, c, a, b, i, j-1)
+		backtrackA(ss, c, a, b, i, j-1)
 		return
 	}
 
-	backtrackLeft(ss, c, a, b, i-1, j)
+	backtrackA(ss, c, a, b, i-1, j)
 	return
 }
 
-func backtrackRight(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	if i == 0 || j == 0 {
 		return
 	}
@@ -822,20 +884,20 @@ func backtrackRight(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 		// TODO (b5): I think this is where we can backtrack based on which node
 		// has the greater weight by taking, need to check
 		// if b[j].Weight() > a[i].Weight() {
-		fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
+		// fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
 		*ss = append([]Node{b[j-1]}, *ss...)
 		// } else {
 		// ss = append(ss, a[i])
 		// }
-		backtrackRight(ss, c, a, b, i-1, j-1)
+		backtrackB(ss, c, a, b, i-1, j-1)
 		return
 	}
 	if c[i][j-1] > c[i-1][j] {
-		backtrackRight(ss, c, a, b, i, j-1)
+		backtrackB(ss, c, a, b, i, j-1)
 		return
 	}
 
-	backtrackRight(ss, c, a, b, i-1, j)
+	backtrackB(ss, c, a, b, i-1, j)
 	return
 }
 
