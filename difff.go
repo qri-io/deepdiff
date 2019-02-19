@@ -664,33 +664,21 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 // https://en.wikipedia.org/wiki/Longest_common_subsequence_problem
 //
 func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
-	nodes := movedBNodes(a, b)
-	for _, n := range nodes {
-		fmt.Println("MATCH")
-		fmt.Printf("%p %p, %s %s %v %v\n", n, n.Match(), path(n), path(n.Match()), n.Value(), n.Match().Value())
-		mv := &Delta{
-			Type:    DTMove,
-			SrcPath: path(n.Match()),
-			DstPath: path(n),
-			DstVal:  n.Value(),
-		}
-		deltas = append(deltas, mv)
-	}
-	return
+	return movedBNodes(a, b)
 }
 
-func movedBNodes(a, b []Node) []Node {
+func movedBNodes(a, b []Node) []*Delta {
 	m := len(a) + 1
 	n := len(b) + 1
 	c := make([][]int, m)
 	c[0] = make([]int, n)
-	fmt.Println("-- moved --", len(a), len(b))
+	// fmt.Println("-- moved --", len(a), len(b))
 
 	for i := 1; i < m; i++ {
-		fmt.Printf("%d\n", i)
+		// fmt.Printf("%d\n", i)
 		c[i] = make([]int, n)
 		for j := 1; j < n; j++ {
-			fmt.Printf("%p %p | %p %p\n", a[i-1], b[j-1], a[i-1].Match(), b[j-1].Match())
+			// fmt.Printf("%p %p | %p %p\n", a[i-1], b[j-1], a[i-1].Match(), b[j-1].Match())
 			if a[i-1].Match() != nil && b[j-1].Match() != nil {
 				// reflect.DeepEqual(a[i-1].Value(), b[j-1].Value())
 				// a[i-1].Name() == b[j-1].Name()
@@ -721,14 +709,50 @@ func movedBNodes(a, b []Node) []Node {
 		fmt.Println("|")
 	}
 
-	var ss []Node
-	backtrack(&ss, c, a, b, m-1, n-1)
-	needCh := sortedSubsetIntersection(b, ss)
-	fmt.Println(a, b, ss, needCh)
-	return needCh
+	var ass, bss []Node
+	backtrackRight(&ass, c, a, b, m-1, n-1)
+	backtrackLeft(&bss, c, a, b, m-1, n-1)
+	amv := intersect(a, ass)
+	bmv := intersect(b, bss)
+
+	fmt.Println("matches:")
+	for _, n := range a {
+		fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
+	}
+	fmt.Println("")
+
+	for _, n := range b {
+		fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
+	}
+	fmt.Println("")
+
+	fmt.Printf("%v %v | %v %v\n", a, ass, bss, b)
+	fmt.Printf("%v | %v\n", amv, bmv)
+
+	fmt.Println("move deltas:")
+	var deltas []*Delta
+	for i := 0; i < len(amv); i++ {
+		// fmt.Println("MATCH")
+		// fmt.Printf("%p %p, %s %s %v %v\n", n, n.Match(), path(n), path(n.Match()), n.Value(), n.Match().Value())
+		am := amv[i]
+		bm := bmv[i]
+		fmt.Printf("A:(addr: %p name: %s value: %v, match: %p)\n", am, am.Name(), am.Value(), am.Match())
+		fmt.Printf("B:(addr: %p name: %s value: %v, match: %p)\n", bm, bm.Name(), bm.Value(), bm.Match())
+
+		mv := &Delta{
+			Type:    DTMove,
+			SrcPath: path(am),
+			DstPath: path(bm),
+			DstVal:  bm.Value(),
+		}
+		deltas = append(deltas, mv)
+	}
+
+	return deltas
 }
 
-func sortedSubsetIntersection(set, subset []Node) (nodes []Node) {
+// intersect produces a set intersection, assuming subset is a subset of set and both nodes are ordered
+func intersect(set, subset []Node) (nodes []Node) {
 	if len(set) == len(subset) {
 		return nil
 	}
@@ -743,7 +767,7 @@ SET:
 		}
 
 		for _, ssn := range subset[c:] {
-			if n.Name() == ssn.Name() {
+			if bytes.Equal(n.Hash(), ssn.Hash()) {
 				c++
 				continue SET
 			}
@@ -763,7 +787,33 @@ SET:
 //   if C[i,j-1] > C[i-1,j]
 //       return backtrack(C, X, Y, i, j-1)
 //   return backtrack(C, X, Y, i-1, j)
-func backtrack(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+func backtrackLeft(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+	if i == 0 || j == 0 {
+		return
+	}
+
+	if bytes.Equal(a[i-1].Hash(), b[j-1].Hash()) {
+		// TODO (b5): I think this is where we can backtrack based on which node
+		// has the greater weight by taking, need to check
+		// if b[j].Weight() > a[i].Weight() {
+		fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
+		*ss = append([]Node{a[i-1]}, *ss...)
+		// } else {
+		// ss = append(ss, a[i])
+		// }
+		backtrackLeft(ss, c, a, b, i-1, j-1)
+		return
+	}
+	if c[i][j-1] > c[i-1][j] {
+		backtrackLeft(ss, c, a, b, i, j-1)
+		return
+	}
+
+	backtrackLeft(ss, c, a, b, i-1, j)
+	return
+}
+
+func backtrackRight(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	if i == 0 || j == 0 {
 		return
 	}
@@ -777,15 +827,15 @@ func backtrack(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 		// } else {
 		// ss = append(ss, a[i])
 		// }
-		backtrack(ss, c, a, b, i-1, j-1)
+		backtrackRight(ss, c, a, b, i-1, j-1)
 		return
 	}
 	if c[i][j-1] > c[i-1][j] {
-		backtrack(ss, c, a, b, i, j-1)
+		backtrackRight(ss, c, a, b, i, j-1)
 		return
 	}
 
-	backtrack(ss, c, a, b, i-1, j)
+	backtrackRight(ss, c, a, b, i-1, j)
 	return
 }
 
