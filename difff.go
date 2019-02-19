@@ -706,7 +706,42 @@ CLEANUP:
 // https://en.wikipedia.org/wiki/Longest_common_subsequence_problem
 //
 func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
-	return movedBNodes(a, b)
+	var wg sync.WaitGroup
+	max := len(a)
+	if len(b) > max {
+		max = len(b)
+	}
+	aRem := len(a) - 1
+	bRem := len(b) - 1
+	pageSize := 50
+
+	for i := 0; i <= max/pageSize; i++ {
+		var aPage, bPage []Node
+		start := (i * pageSize)
+		// fmt.Println(start, start+pageSize, a, b)
+		if (start + pageSize) > aRem {
+			aPage = a[start:]
+		} else {
+			aPage = a[start : start+pageSize]
+		}
+
+		if (start + pageSize) > bRem {
+			bPage = b[start:]
+		} else {
+			bPage = b[start : start+pageSize]
+		}
+
+		wg.Add(1)
+		go func(a, b []Node) {
+			if ds := movedBNodes(a, b); ds != nil {
+				deltas = append(deltas, ds...)
+			}
+			wg.Done()
+		}(aPage, bPage)
+	}
+	wg.Wait()
+
+	return
 }
 
 func movedBNodes(allA, allB []Node) []*Delta {

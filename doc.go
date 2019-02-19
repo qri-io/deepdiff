@@ -39,11 +39,11 @@
 // TODO (b5):
 //  √ basic non-move-delta tests passing
 //  √ adjust dst paths after insert/delete calculations
-//  * move deltas:
-//    * parent-switch moves
-//  	* longest-common-match subsequence
-//  	* internal node move deltas
-//  * initial tests passing
+//  √ move deltas:
+//    √ parent-switch moves
+//  	√ longest-common-match subsequence
+//  	√ internal node move deltas
+//  √ initial tests passing
 //  * patch application
 //  * basic test that checks forward patch against d2
 //  * basic test the checks backward patch against d1 (confirm patch is reversible)

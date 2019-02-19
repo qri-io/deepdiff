@@ -22,10 +22,10 @@ digraph {
   subgraph cluster_t2 {
     label="t2";
     t2 [label="t2", tooltip="weight: 76"];
-    t2 -> t2foo;
     t2 -> t2a;
     t2 -> t2bar;
     t2 -> t2baz;
+    t2 -> t2foo;
     t2baz [label="t2/baz", tooltip="weight: 64"];
     t2baz -> t2baza;
     t2baz -> t2baze;
@@ -49,8 +49,8 @@ digraph {
   t2bar -> t1bar[color=red,penwidth=1.0];
   t2baz -> t1baz[color=red,penwidth=1.0];
   t2baza -> t1baza[color=red,penwidth=1.0];
-  t2bazab -> t1bazab[color=red,penwidth=1.0];
   t2bazac -> t1bazac[color=red,penwidth=1.0];
   t2bazad -> t1bazad[color=red,penwidth=1.0];
+  t2bazab -> t1bazab[color=red,penwidth=1.0];
   t2baze -> t1baze[color=red,penwidth=1.0];
 }
