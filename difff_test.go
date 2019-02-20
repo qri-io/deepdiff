@@ -219,8 +219,8 @@ func TestBasicDiffing(t *testing.T) {
 		},
 		{
 			"scalar change object",
-			`{"a":[0,1,2]}`,
-			`{"a":[0,1,3]}`,
+			`{"a":[0,1,2],"b":true}`,
+			`{"a":[0,1,3],"b":true}`,
 			[]*Delta{
 				{Type: DTUpdate, SrcPath: "/a/2", DstPath: "/a/2", SrcVal: float64(2), DstVal: float64(3)},
 			},

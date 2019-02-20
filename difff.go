@@ -7,7 +7,6 @@ import (
 	"hash"
 	"hash/fnv"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,15 +80,6 @@ func path(n Node) string {
 	return "/" + strings.Join(path, "/")
 }
 
-func rootNode(n Node) Node {
-	for {
-		if n.Parent() == nil {
-			return n
-		}
-		n = n.Parent()
-	}
-}
-
 // NewHash returns a new hash interface, wrapped in a function for easy
 // hash algorithm switching, package consumers can override NewHash
 // with their own desired hash.Hash implementation if the value space is
@@ -100,16 +90,6 @@ var NewHash = func() hash.Hash {
 
 func hashStr(sum []byte) string {
 	return hex.EncodeToString(sum)
-}
-
-// sortAdd inserts n into nodes, keeping the slice sorted by node weight,
-// heaviest to the left
-func sortAdd(n Node, nodes []Node) []Node {
-	i := sort.Search(len(nodes), func(i int) bool { return nodes[i].Weight() <= n.Weight() })
-	nodes = append(nodes, nil)
-	copy(nodes[i+1:], nodes[i:])
-	nodes[i] = n
-	return nodes
 }
 
 func (d *diff) queueMatch(t1Nodes map[string][]Node, t2 Node) {
@@ -214,6 +194,7 @@ func (d *diff) optimize(t1, t2 Node) {
 			wg.Done()
 		}()
 	})
+	wg.Wait()
 	walkPostfix(t2, "", func(p string, n Node) {
 		wg.Add(1)
 		go func() {
@@ -485,32 +466,26 @@ func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 func movedBNodes(allA, allB []Node) []*Delta {
 	var a, b []Node
 	for _, n := range allA {
-		// if _, ok := n.(Compound); ok {
 		if n.Match() != nil {
 			a = append(a, n)
 		}
-		// }
 	}
 
 	for _, n := range allB {
-		// if _, ok := n.(Compound); ok {
 		if n.Match() != nil {
 			b = append(b, n)
 		}
-		// }
 	}
 
 	m := len(a) + 1
 	n := len(b) + 1
 	c := make([][]int, m)
 	c[0] = make([]int, n)
-	// fmt.Println("-- moved --", len(a), len(b))
 
 	for i := 1; i < m; i++ {
 		// fmt.Printf("%d\n", i)
 		c[i] = make([]int, n)
 		for j := 1; j < n; j++ {
-			// fmt.Printf("%p %p | %p %p\n", a[i-1], b[j-1], a[i-1].Match(), b[j-1].Match())
 			if a[i-1].Match() != nil && b[j-1].Match() != nil {
 				// reflect.DeepEqual(a[i-1].Value(), b[j-1].Value())
 				// a[i-1].Name() == b[j-1].Name()
@@ -533,35 +508,12 @@ func movedBNodes(allA, allB []Node) []*Delta {
 		return nil
 	}
 
-	// for i := 0; i < m; i++ {
-	// 	fmt.Printf("  | ")
-	// 	for j := 0; j < n; j++ {
-	// 		fmt.Printf("%d ", c[i][j])
-	// 	}
-	// 	fmt.Println("|")
-	// }
-
 	var ass, bss []Node
 	backtrackB(&ass, c, a, b, m-1, n-1)
 	backtrackA(&bss, c, a, b, m-1, n-1)
 	amv := intersect(a, ass)
 	bmv := intersect(b, bss)
 
-	// fmt.Println("matches:")
-	// for _, n := range a {
-	// 	fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
-	// }
-	// fmt.Println("")
-
-	// for _, n := range b {
-	// 	fmt.Printf("(addr: %p name: %s value: %v, match: %p) ", n, n.Name(), n.Value(), n.Match())
-	// }
-	// fmt.Println("")
-
-	// fmt.Printf("%v %v | %v %v\n", a, ass, bss, b)
-	// fmt.Printf("%v | %v\n", amv, bmv)
-
-	// fmt.Println("move deltas:")
 	var deltas []*Delta
 	for i := 0; i < len(amv); i++ {
 		am := amv[i]
@@ -570,9 +522,6 @@ func movedBNodes(allA, allB []Node) []*Delta {
 		// don't add moves that have the same source & destination paths
 		// can be created by matches that move between parents
 		if path(am) != path(bm) {
-			// fmt.Printf("A:(addr: %p name: %s value: %v, match: %p)\n", am, am.Name(), am.Value(), am.Match())
-			// fmt.Printf("B:(addr: %p name: %s value: %v, match: %p)\n", bm, bm.Name(), bm.Value(), bm.Match())
-
 			mv := &Delta{
 				Type:    DTMove,
 				SrcPath: path(am),

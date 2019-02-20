@@ -23,27 +23,6 @@ const (
 	NTNull
 )
 
-func (nt NodeType) String() string {
-	switch nt {
-	case NTObject:
-		return "Object"
-	case NTArray:
-		return "Array"
-	case NTString:
-		return "String"
-	case NTFloat:
-		return "Float"
-	case NTInt:
-		return "Int"
-	case NTBool:
-		return "Bool"
-	case NTNull:
-		return "Null"
-	default:
-		return "Unknown"
-	}
-}
-
 type Node interface {
 	Type() NodeType
 	Hash() []byte
@@ -101,7 +80,8 @@ type array struct {
 	value  interface{}
 	match  Node
 
-	children []Node
+	childNames map[string]int
+	children   []Node
 }
 
 func (c array) Type() NodeType       { return NTArray }
@@ -115,12 +95,7 @@ func (c array) Match() Node          { return c.match }
 func (c *array) SetMatch(n Node)     { c.match = n }
 func (c array) Children() []Node     { return c.children }
 func (c array) Child(name string) Node {
-	for _, ch := range c.children {
-		if ch.Name() == name {
-			return ch
-		}
-	}
-	return nil
+	return c.children[c.childNames[name]]
 }
 
 type scalar struct {
@@ -226,16 +201,18 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 	case []interface{}:
 		hasher := NewHash()
 		arr := &array{
-			name:     name,
-			parent:   parent,
-			children: make([]Node, len(x)),
-			value:    v,
+			name:       name,
+			parent:     parent,
+			childNames: map[string]int{},
+			children:   make([]Node, len(x)),
+			value:      v,
 		}
 
 		for i, v := range x {
 			name := strconv.Itoa(i)
 			node := tree(v, name, arr, nodes)
 			hasher.Write(node.Hash())
+			arr.childNames[name] = i
 			arr.children[i] = node
 		}
 		arr.hash = hasher.Sum(nil)
