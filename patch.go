@@ -28,7 +28,7 @@ func applyDelta(tree reflect.Value, dlt *Delta) error {
 	case DTInsert:
 		return insertValue(tree, dlt.DstPath, dlt.DstVal)
 	case DTDelete:
-		return deleteValue(tree, dlt.DstPath)
+		return deleteValue(tree, dlt.SrcPath)
 	case DTMove:
 		return moveValue(tree, dlt.SrcPath, dlt.DstPath, dlt.DstVal)
 	default:

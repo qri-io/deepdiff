@@ -60,19 +60,19 @@ func TestPatch(t *testing.T) {
 			"delete from end of array",
 			[]interface{}{"a", "b", "c"},
 			[]interface{}{"a", "b"},
-			[]*Delta{&Delta{Type: DTDelete, DstPath: "/2"}},
+			[]*Delta{&Delta{Type: DTDelete, SrcPath: "/2"}},
 		},
 		{
 			"delete from array",
 			[]interface{}{"a", "b", "c"},
 			[]interface{}{"a", "c"},
-			[]*Delta{&Delta{Type: DTDelete, DstPath: "/1"}},
+			[]*Delta{&Delta{Type: DTDelete, SrcPath: "/1"}},
 		},
 		{
 			"delete from object",
 			map[string]interface{}{"a": false},
 			map[string]interface{}{},
-			[]*Delta{&Delta{Type: DTDelete, DstPath: "/a"}},
+			[]*Delta{&Delta{Type: DTDelete, SrcPath: "/a"}},
 		},
 		{
 			"delete from nested object",
@@ -88,7 +88,7 @@ func TestPatch(t *testing.T) {
 					map[string]interface{}{},
 				},
 			},
-			[]*Delta{&Delta{Type: DTDelete, DstPath: "/a/0/b"}},
+			[]*Delta{&Delta{Type: DTDelete, SrcPath: "/a/0/b"}},
 		},
 		{
 			"move in object",
@@ -109,7 +109,7 @@ func TestPatch(t *testing.T) {
 			[]*Delta{
 				&Delta{Type: DTInsert, DstPath: "/c", DstVal: float64(3)},
 				&Delta{Type: DTUpdate, DstPath: "/a", DstVal: false},
-				&Delta{Type: DTDelete, DstPath: "/b", DstVal: false},
+				&Delta{Type: DTDelete, SrcPath: "/b", DstVal: false},
 			},
 		},
 		// {

@@ -152,6 +152,19 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 		if err := CompareDiffs(c.expect, diff); err != nil {
 			t.Errorf("%d. '%s' result mismatch: %s", i, c.description, err)
 		}
+
+		if err := Patch(&src, diff); err != nil {
+			t.Errorf("error patching source: %s", err)
+		}
+		if !reflect.DeepEqual(src, dst) {
+			t.Errorf("%d. '%s' patched result mismatch:", i, c.description)
+			srcData, _ := json.Marshal(src)
+			dstData, _ := json.Marshal(dst)
+			patchData, _ := json.Marshal(diff)
+			t.Log("src  :", string(srcData))
+			t.Log("dst  :", string(dstData))
+			t.Log("patch:", string(patchData))
+		}
 	}
 }
 
