@@ -201,7 +201,7 @@ func TestBasicDiffing(t *testing.T) {
 			`[[0,1,2]]`,
 			`[[0,1,3]]`,
 			[]*Delta{
-				{Type: DTChange, SrcPath: "/0/2", DstPath: "/0/2", SrcVal: float64(2), DstVal: float64(3)},
+				{Type: DTUpdate, SrcPath: "/0/2", DstPath: "/0/2", SrcVal: float64(2), DstVal: float64(3)},
 			},
 		},
 		{
@@ -209,7 +209,7 @@ func TestBasicDiffing(t *testing.T) {
 			`{"a":[0,1,2]}`,
 			`{"a":[0,1,3]}`,
 			[]*Delta{
-				{Type: DTChange, SrcPath: "/a/2", DstPath: "/a/2", SrcVal: float64(2), DstVal: float64(3)},
+				{Type: DTUpdate, SrcPath: "/a/2", DstPath: "/a/2", SrcVal: float64(2), DstVal: float64(3)},
 			},
 		},
 		{

@@ -15,8 +15,8 @@ const (
 	// DTMove is the succession of a deletion & insertion
 	// of the same node
 	DTMove = DeltaType("move")
-	// DTChange is an alteration of a scalar data type (string, bool, float, etc)
-	DTChange = DeltaType("change")
+	// DTUpdate is an alteration of a scalar data type (string, bool, float, etc)
+	DTUpdate = DeltaType("update")
 )
 
 // Delta represents a change between two documents
