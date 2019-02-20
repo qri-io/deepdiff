@@ -52,9 +52,10 @@ func TestDiffDotGraph(t *testing.T) {
 		panic(err)
 	}
 
-	t1, t2, t1Nodes := prepTrees(a, b)
-	queueMatch(t1Nodes, t2)
-	optimize(t1, t2)
+	d := &diff{cfg: &DiffConfig{}, d1: a, d2: b}
+	d.t1, d.t2, d.t1Nodes = d.prepTrees()
+	d.queueMatch(d.t1Nodes, d.t2)
+	d.optimize(d.t1, d.t2)
 
 	mkID := func(pfx string, n Node) string {
 		id := strings.Replace(path(n), "/", "", -1)
@@ -70,7 +71,7 @@ func TestDiffDotGraph(t *testing.T) {
 	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
 	fmt.Fprintf(buf, "    label=\"t1\";\n")
 
-	walk(t1, "t1", func(p string, n Node) bool {
+	walk(d.t1, "t1", func(p string, n Node) bool {
 		if cmp, ok := n.(Compound); ok {
 			pID := mkID("t1", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
@@ -84,7 +85,7 @@ func TestDiffDotGraph(t *testing.T) {
 
 	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
 	fmt.Fprintf(buf, "    label=\"t2\";\n")
-	walk(t2, "t2", func(p string, n Node) bool {
+	walk(d.t2, "t2", func(p string, n Node) bool {
 		if cmp, ok := n.(Compound); ok {
 			pID := mkID("t2", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
@@ -96,7 +97,7 @@ func TestDiffDotGraph(t *testing.T) {
 	})
 	fmt.Fprintf(buf, "  }\n\n")
 
-	walk(t2, "", func(p string, n Node) bool {
+	walk(d.t2, "", func(p string, n Node) bool {
 		nID := mkID("t2", n)
 		if n.Match() != nil {
 			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))
@@ -109,26 +110,23 @@ func TestDiffDotGraph(t *testing.T) {
 	ioutil.WriteFile("testdata/graph.dot", buf.Bytes(), os.ModePerm)
 }
 
-func TestBasicDiff(t *testing.T) {
-	var a interface{}
-	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
-		panic(err)
-	}
+// func TestBasicDiff(t *testing.T) {
+// 	var a interface{}
+// 	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
+// 		panic(err)
+// 	}
 
-	var b interface{}
-	if err := json.Unmarshal([]byte(bJSON), &b); err != nil {
-		panic(err)
-	}
+// 	var b interface{}
+// 	if err := json.Unmarshal([]byte(bJSON), &b); err != nil {
+// 		panic(err)
+// 	}
 
-	// TODO (b5): test output
-	// Diff(a, b)
-	_, err := Diff(a, b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// data, _ := json.MarshalIndent(ds, "", "  ")
-	// fmt.Println(string(data))
-}
+// 	// TODO (b5): test output
+// 	// Diff(a, b)
+// 	_, := Diff(a, b)
+// 	// data, _ := json.MarshalIndent(ds, "", "  ")
+// 	// fmt.Println(string(data))
+// }
 
 type TestCase struct {
 	description string   // description of what test is checking
@@ -136,7 +134,7 @@ type TestCase struct {
 	expect      []*Delta // expected output
 }
 
-func RunTestCases(t *testing.T, cases []TestCase) {
+func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 	var (
 		src interface{}
 		dst interface{}
@@ -150,11 +148,7 @@ func RunTestCases(t *testing.T, cases []TestCase) {
 			t.Fatal(err)
 		}
 
-		diff, err := Diff(src, dst)
-		if err != nil {
-			t.Errorf("%d. '%s' unexpected error: %s", i, c.description, err)
-			continue
-		}
+		diff := Diff(src, dst, opts...)
 		if err := CompareDiffs(c.expect, diff); err != nil {
 			t.Errorf("%d. '%s' result mismatch: %s", i, c.description, err)
 		}
@@ -254,6 +248,13 @@ func TestBasicDiffing(t *testing.T) {
 				{Type: DTDelete, SrcPath: "/b", DstPath: "", SrcVal: []interface{}{float64(2)}, DstVal: nil},
 			},
 		},
+	}
+
+	RunTestCases(t, cases)
+}
+
+func TestMoveDiffs(t *testing.T) {
+	cases := []TestCase{
 		{
 			"different parent move array",
 			`[[1],[2],[3]]`,
@@ -271,8 +272,9 @@ func TestBasicDiffing(t *testing.T) {
 			},
 		},
 	}
-
-	RunTestCases(t, cases)
+	RunTestCases(t, cases, func(o *DiffConfig) {
+		o.MoveDeltas = true
+	})
 }
 
 func BenchmarkDiff1(b *testing.B) {

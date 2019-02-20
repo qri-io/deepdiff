@@ -13,50 +13,60 @@ import (
 	"sync"
 )
 
-var (
-	// ErrCompletelyDistinct is a holdover error while we work out the details
-	ErrCompletelyDistinct = fmt.Errorf("these things are totally different")
-)
+type DiffConfig struct {
+	MoveDeltas bool
+}
+
+type DiffOption func(cfg *DiffConfig)
 
 // Diff computes a slice of deltas that define an edit script for turning the
 // value at d1 into d2
-func Diff(d1, d2 interface{}) ([]*Delta, error) {
-	t1, t2, t1Nodes := prepTrees(d1, d2)
-	queueMatch(t1Nodes, t2)
-	optimize(t1, t2)
-	dts := computeDeltas(t1, t2)
+func Diff(d1, d2 interface{}, opts ...DiffOption) []*Delta {
+	cfg := &DiffConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
-	return dts, nil
+	difff := &diff{cfg: cfg, d1: d1, d2: d2}
+	return difff.diff()
 }
 
-// DeltaType defines the types of changes xydiff can create
-// to describe the difference between two documents
-type DeltaType string
+type diff struct {
+	cfg     *DiffConfig
+	d1, d2  interface{}
+	t1, t2  Node
+	t1Nodes map[string][]Node
+}
 
-const (
-	// DTDelete means making the children of a node
-	// become the children of a node's parent
-	DTDelete = DeltaType("delete")
-	// DTInsert is the compliment of deleting, adding
-	// children of a parent node to a new node, and making
-	// that node a child of the original parent
-	DTInsert = DeltaType("insert")
-	// DTMove is the succession of a deletion & insertion
-	// of the same node
-	DTMove = DeltaType("move")
-	// DTChange is an alteration of a scalar data type (string, bool, float, etc)
-	DTChange = DeltaType("change")
-)
+func (d *diff) diff() []*Delta {
+	d.t1, d.t2, d.t1Nodes = d.prepTrees()
+	d.queueMatch(d.t1Nodes, d.t2)
+	d.optimize(d.t1, d.t2)
+	return d.computeDeltas(d.t1, d.t2)
+}
 
-// Delta represents a change between two documents
-type Delta struct {
-	Type DeltaType
+func walk(tree Node, path string, fn func(path string, n Node) bool) {
+	if tree.Name() != "" {
+		path += fmt.Sprintf("/%s", tree.Name())
+	}
+	kontinue := fn(path, tree)
+	if cmp, ok := tree.(Compound); kontinue && ok {
+		for _, n := range cmp.Children() {
+			walk(n, path, fn)
+		}
+	}
+}
 
-	SrcPath string
-	DstPath string
-
-	SrcVal interface{}
-	DstVal interface{}
+func walkPostfix(tree Node, path string, fn func(path string, n Node)) {
+	if tree.Name() != "" {
+		path += fmt.Sprintf("/%s", tree.Name())
+	}
+	if cmp, ok := tree.(Compound); ok {
+		for _, n := range cmp.Children() {
+			walkPostfix(n, path, fn)
+		}
+	}
+	fn(path, tree)
 }
 
 func path(n Node) string {
@@ -228,7 +238,7 @@ func (s scalar) Value() interface{}   { return s.value }
 func (s scalar) Match() Node          { return s.match }
 func (s *scalar) SetMatch(n Node)     { s.match = n }
 
-func prepTrees(d1, d2 interface{}) (t1, t2 Node, t1Nodes map[string][]Node) {
+func (d *diff) prepTrees() (t1, t2 Node, t1Nodes map[string][]Node) {
 	var (
 		wg        sync.WaitGroup
 		t1nodesCh = make(chan Node)
@@ -246,7 +256,7 @@ func prepTrees(d1, d2 interface{}) (t1, t2 Node, t1Nodes map[string][]Node) {
 		wg.Done()
 	}(t1nodesCh)
 	go func() {
-		t1 = tree(d1, "", nil, t1nodesCh)
+		t1 = tree(d.d1, "", nil, t1nodesCh)
 		close(t1nodesCh)
 	}()
 
@@ -257,7 +267,7 @@ func prepTrees(d1, d2 interface{}) (t1, t2 Node, t1Nodes map[string][]Node) {
 		wg.Done()
 	}(t2nodesCh)
 	go func() {
-		t2 = tree(d2, "", nil, t2nodesCh)
+		t2 = tree(d.d2, "", nil, t2nodesCh)
 		close(t2nodesCh)
 	}()
 
@@ -376,7 +386,7 @@ func sortAdd(n Node, nodes []Node) []Node {
 	return nodes
 }
 
-func queueMatch(t1Nodes map[string][]Node, t2 Node) {
+func (d *diff) queueMatch(t1Nodes map[string][]Node, t2 Node) {
 	queue := make(chan Node)
 	done := make(chan struct{})
 	considering := 1
@@ -468,17 +478,25 @@ func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 	}
 }
 
-func optimize(t1, t2 Node) {
-	walk(t1, "", func(p string, n Node) bool {
-		propagateMatchToParent(n)
-		propagateMatchToChildren(n)
-		return true
+func (d *diff) optimize(t1, t2 Node) {
+	var wg sync.WaitGroup
+	walkPostfix(t1, "", func(p string, n Node) {
+		wg.Add(1)
+		go func() {
+			propagateMatchToParent(n)
+			propagateMatchToChildren(n)
+			wg.Done()
+		}()
 	})
-	walk(t2, "", func(p string, n Node) bool {
-		propagateMatchToParent(n)
-		propagateMatchToChildren(n)
-		return true
+	walkPostfix(t2, "", func(p string, n Node) {
+		wg.Add(1)
+		go func() {
+			propagateMatchToParent(n)
+			propagateMatchToChildren(n)
+			wg.Done()
+		}()
 	})
+	wg.Wait()
 }
 
 func propagateMatchToParent(n Node) {
@@ -530,25 +548,14 @@ func propagateMatchToChildren(n Node) {
 	}
 }
 
-func computeDeltas(t1, t2 Node) []*Delta {
-	ds := calcDeltas(t1, t2)
+func (d *diff) computeDeltas(t1, t2 Node) []*Delta {
+	ds := d.calcDeltas(t1, t2)
 	return ds
 }
 
-func walk(tree Node, path string, fn func(path string, n Node) bool) {
-	if tree.Name() != "" {
-		path += fmt.Sprintf("/%s", tree.Name())
-	}
-	kontinue := fn(path, tree)
-	if cmp, ok := tree.(Compound); kontinue && ok {
-		for _, n := range cmp.Children() {
-			walk(n, path, fn)
-		}
-	}
-}
-
 // calculate inserts, changes, deletes, & moves
-func calcDeltas(t1, t2 Node) (dts []*Delta) {
+func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
+	// fmt.Println("calc moves?", d.cfg.MoveDeltas)
 	walk(t1, "", func(p string, n Node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
@@ -619,43 +626,45 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 			return false
 		}
 
-		// If we have a match & parents are different, this corresponds to a move
-		if path(match.Parent()) != path(n.Parent()) {
-			delta := &Delta{
-				Type:    DTMove,
-				DstPath: p,
-				SrcPath: path(match),
-				SrcVal:  match.Value(),
-				DstVal:  n.Value(),
-			}
-			dts = append(dts, delta)
-			parentMoves = append(parentMoves, delta)
+		if d.cfg.MoveDeltas {
+			// If we have a match & parents are different, this corresponds to a move
+			if path(match.Parent()) != path(n.Parent()) {
+				delta := &Delta{
+					Type:    DTMove,
+					DstPath: p,
+					SrcPath: path(match),
+					SrcVal:  match.Value(),
+					DstVal:  n.Value(),
+				}
+				dts = append(dts, delta)
+				parentMoves = append(parentMoves, delta)
 
-			// update t1 array values to reflect insertion so later comparisons will be
-			// accurate. only place where this really applies is parent of insert is
-			// an array (object paths will remain accurate)
-			if parent := n.Parent(); parent != nil && parent.Type() == NTArray {
-				if match := parent.Match(); match != nil {
-					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
-					if err != nil {
-						panic(err)
-					}
-					idx := int(idx64)
-					for i, n := range match.(Compound).Children() {
-						if i > idx {
-							n.SetName(strconv.Itoa(i + 1))
+				// update t1 array values to reflect insertion so later comparisons will be
+				// accurate. only place where this really applies is parent of insert is
+				// an array (object paths will remain accurate)
+				if parent := n.Parent(); parent != nil && parent.Type() == NTArray {
+					if match := parent.Match(); match != nil {
+						idx64, err := strconv.ParseInt(n.Name(), 0, 0)
+						if err != nil {
+							panic(err)
+						}
+						idx := int(idx64)
+						for i, n := range match.(Compound).Children() {
+							if i > idx {
+								n.SetName(strconv.Itoa(i + 1))
+							}
 						}
 					}
 				}
+
+				// break matching to prevent connection later on
+				match.Parent().SetMatch(nil)
+				n.Parent().SetMatch(nil)
+				// match.SetMatch(nil)
+				// n.SetMatch(nil)
+
+				return false
 			}
-
-			// break matching to prevent connection later on
-			match.Parent().SetMatch(nil)
-			n.Parent().SetMatch(nil)
-			// match.SetMatch(nil)
-			// n.SetMatch(nil)
-
-			return false
 		}
 
 		if _, ok := n.(Compound); !ok {
@@ -669,35 +678,38 @@ func calcDeltas(t1, t2 Node) (dts []*Delta) {
 		return true
 	})
 
-	var cleanups []string
-	walk(t2, "", func(p string, n Node) bool {
-		if n.Type() == NTArray && n.Match() != nil {
-			// matches to same array-type parent require checking for shuffles within the parent
-			// *expensive*
-			deltas := calcReorderDeltas(n.Match().(Compound).Children(), n.(Compound).Children())
-			for _, d := range deltas {
-				cleanups = append(cleanups, d.SrcPath, d.DstPath)
+	if d.cfg.MoveDeltas {
+		var cleanups []string
+		walk(t2, "", func(p string, n Node) bool {
+			if n.Type() == NTArray && n.Match() != nil {
+				// matches to same array-type parent require checking for shuffles within the parent
+				// *expensive*
+				deltas := calcReorderDeltas(n.Match().(Compound).Children(), n.(Compound).Children())
+				for _, d := range deltas {
+					cleanups = append(cleanups, d.SrcPath, d.DstPath)
+				}
+				if deltas != nil {
+					dts = append(dts, deltas...)
+					return false
+				}
 			}
-			if deltas != nil {
-				dts = append(dts, deltas...)
-				return false
-			}
-		}
-		return true
-	})
+			return true
+		})
 
-	var cleaned []*Delta
-CLEANUP:
-	for _, d := range dts {
-		for _, pth := range cleanups {
-			if d.Type == DTChange && (strings.HasPrefix(d.SrcPath, pth) || strings.HasPrefix(d.DstPath, pth)) {
-				continue CLEANUP
+		var cleaned []*Delta
+	CLEANUP:
+		for _, d := range dts {
+			for _, pth := range cleanups {
+				if d.Type == DTChange && (strings.HasPrefix(d.SrcPath, pth) || strings.HasPrefix(d.DstPath, pth)) {
+					continue CLEANUP
+				}
 			}
+			cleaned = append(cleaned, d)
 		}
-		cleaned = append(cleaned, d)
+		return cleaned
 	}
 
-	return cleaned
+	return dts
 }
 
 // calcReorderDeltas creates deltas that describes moves within the same parent
