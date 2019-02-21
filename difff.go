@@ -41,6 +41,7 @@ func (d *diff) diff() []*Delta {
 	d.t1, d.t2, d.t1Nodes = d.prepTrees()
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
+	d.optimize(d.t1, d.t2)
 	return d.computeDeltas(d.t1, d.t2)
 }
 
@@ -185,25 +186,25 @@ func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 }
 
 func (d *diff) optimize(t1, t2 Node) {
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 	walkPostfix(t1, "", func(p string, n Node) {
-		wg.Add(1)
-		go func() {
-			propagateMatchToParent(n)
-			propagateMatchToChildren(n)
-			wg.Done()
-		}()
+		// wg.Add(1)
+		// go func() {
+		propagateMatchToParent(n)
+		propagateMatchToChildren(n)
+		// wg.Done()
+		// }()
 	})
-	wg.Wait()
+	// wg.Wait()
 	walkPostfix(t2, "", func(p string, n Node) {
-		wg.Add(1)
-		go func() {
-			propagateMatchToParent(n)
-			propagateMatchToChildren(n)
-			wg.Done()
-		}()
+		// wg.Add(1)
+		// go func() {
+		propagateMatchToParent(n)
+		propagateMatchToChildren(n)
+		// wg.Done()
+		// }()
 	})
-	wg.Wait()
+	// wg.Wait()
 }
 
 func propagateMatchToParent(n Node) {
@@ -234,7 +235,7 @@ func propagateMatchToChildren(n Node) {
 	// if a node is matched & a compound type,
 	if n1, ok := n.(Compound); ok && n.Match() != nil {
 		if n2, ok := n.Match().(Compound); ok {
-			if n1.Type() == NTObject && n2.Type() == NTObject {
+			if n1.Type() == ntObject && n2.Type() == ntObject {
 				// match any key names
 				for _, n1ch := range n1.Children() {
 					if n2ch := n2.Child(n1ch.Name()); n2ch != nil {
@@ -242,7 +243,7 @@ func propagateMatchToChildren(n Node) {
 					}
 				}
 			}
-			if n1.Type() == NTArray && n2.Type() == NTArray && len(n1.Children()) == len(n2.Children()) {
+			if n1.Type() == ntArray && n2.Type() == ntArray && len(n1.Children()) == len(n2.Children()) {
 				// if arrays are the same length, match all children
 				// b/c these are arrays, no names should be missing, safe to skip check
 				for _, n1ch := range n1.Children() {
@@ -276,7 +277,7 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 			// accurate. only place where this really applies is parent of delete is
 			// an array (object paths will remain accurate)
 			if parent := n.Parent(); parent != nil {
-				if cmp, ok := parent.(Compound); ok && cmp.Type() == NTArray {
+				if cmp, ok := parent.(Compound); ok && cmp.Type() == ntArray {
 					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
 					if err != nil {
 						panic(err)
@@ -312,7 +313,7 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 			// update t1 array values to reflect insertion so later comparisons will be
 			// accurate. only place where this really applies is parent of insert is
 			// an array (object paths will remain accurate)
-			if parent := n.Parent(); parent != nil && parent.Type() == NTArray {
+			if parent := n.Parent(); parent != nil && parent.Type() == ntArray {
 				if match := parent.Match(); match != nil {
 					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
 					if err != nil {
@@ -349,7 +350,7 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 				// update t1 array values to reflect insertion so later comparisons will be
 				// accurate. only place where this really applies is parent of insert is
 				// an array (object paths will remain accurate)
-				if parent := n.Parent(); parent != nil && parent.Type() == NTArray {
+				if parent := n.Parent(); parent != nil && parent.Type() == ntArray {
 					if match := parent.Match(); match != nil {
 						idx64, err := strconv.ParseInt(n.Name(), 0, 0)
 						if err != nil {
@@ -388,7 +389,7 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 	if d.cfg.MoveDeltas {
 		var cleanups []string
 		walk(t2, "", func(p string, n Node) bool {
-			if n.Type() == NTArray && n.Match() != nil {
+			if n.Type() == ntArray && n.Match() != nil {
 				// matches to same array-type parent require checking for shuffles within the parent
 				// *expensive*
 				deltas := calcReorderDeltas(n.Match().(Compound).Children(), n.(Compound).Children())

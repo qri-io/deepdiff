@@ -7,24 +7,22 @@ import (
 	"sync"
 )
 
-// NodeType defines all of the atoms in our universe
-type NodeType uint8
+// nodeType defines all of the atoms in our universe
+type nodeType uint8
 
 const (
-	// NTUnknown defines a type outside our universe, should never be encountered
-	NTUnknown NodeType = iota
-	// NTObject is a dictionary of key / value pairs
-	NTObject
-	NTArray
-	NTString
-	NTFloat
-	NTInt
-	NTBool
-	NTNull
+	ntUnknown nodeType = iota
+	ntObject
+	ntArray
+	ntString
+	ntFloat
+	ntInt
+	ntBool
+	ntNull
 )
 
 type Node interface {
-	Type() NodeType
+	Type() nodeType
 	Hash() []byte
 	Weight() int
 	Parent() Node
@@ -52,7 +50,7 @@ type object struct {
 	children map[string]Node
 }
 
-func (o object) Type() NodeType       { return NTObject }
+func (o object) Type() nodeType       { return ntObject }
 func (o object) Name() string         { return o.name }
 func (o *object) SetName(name string) { o.name = name }
 func (o object) Hash() []byte         { return o.hash }
@@ -84,7 +82,7 @@ type array struct {
 	children   []Node
 }
 
-func (c array) Type() NodeType       { return NTArray }
+func (c array) Type() nodeType       { return ntArray }
 func (c array) Name() string         { return c.name }
 func (c *array) SetName(name string) { c.name = name }
 func (c array) Hash() []byte         { return c.hash }
@@ -99,7 +97,7 @@ func (c array) Child(name string) Node {
 }
 
 type scalar struct {
-	t      NodeType
+	t      nodeType
 	name   string
 	hash   []byte
 	parent Node
@@ -108,7 +106,7 @@ type scalar struct {
 	match  Node
 }
 
-func (s scalar) Type() NodeType       { return s.t }
+func (s scalar) Type() nodeType       { return s.t }
 func (s scalar) Name() string         { return s.name }
 func (s *scalar) SetName(name string) { s.name = name }
 func (s scalar) Hash() []byte         { return s.hash }
@@ -159,7 +157,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 	switch x := v.(type) {
 	case nil:
 		n = &scalar{
-			t:      NTNull,
+			t:      ntNull,
 			name:   name,
 			hash:   NewHash().Sum([]byte("null")),
 			parent: parent,
@@ -169,7 +167,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 	case float64:
 		fstr := strconv.FormatFloat(x, 'f', -1, 64)
 		n = &scalar{
-			t:      NTFloat,
+			t:      ntFloat,
 			name:   name,
 			hash:   NewHash().Sum([]byte(fstr)),
 			parent: parent,
@@ -178,7 +176,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 		}
 	case string:
 		n = &scalar{
-			t:      NTString,
+			t:      ntString,
 			name:   name,
 			hash:   NewHash().Sum([]byte(x)),
 			parent: parent,
@@ -191,7 +189,7 @@ func tree(v interface{}, name string, parent Node, nodes chan Node) (n Node) {
 			bstr = "true"
 		}
 		n = &scalar{
-			t:      NTBool,
+			t:      ntBool,
 			name:   name,
 			hash:   NewHash().Sum([]byte(bstr)),
 			parent: parent,

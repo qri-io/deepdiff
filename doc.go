@@ -44,13 +44,14 @@
 //  	√ longest-common-match subsequence
 //  	√ internal node move deltas
 //  √ initial tests passing
-//  * patch application
-//  * basic test that checks forward patch against d2
+//  √ patch application
+//  √ basic test that checks forward patch against d2
 //  * basic test the checks backward patch against d1 (confirm patch is reversible)
-//  * rename "Compound" -> "Internal", "Scalar" -> "Leaf", deal with possible empty object/array bugs
+//  * rename "Compound" -> "Internal", "Scalar" -> "Leaf"
+//  * deal with possible empty object/array bugs
 //  --
+//  * write example
 //  * dataset generator, benchmarks against 100MB & 500MB datasets
 //  * change simulator & generative tests
 //  * fast-path using simplified cubic-time diff calculation
-//  * write example
 package difff
