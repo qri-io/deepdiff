@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -31,6 +32,69 @@ type Node interface {
 	Value() interface{}
 	Match() Node
 	SetMatch(Node)
+}
+
+// nodes implements the sort interface for a slice of nodes
+type nodes []Node
+
+func (ns nodes) Len() int           { return len(ns) }
+func (ns nodes) Less(i, j int) bool { return ns[i].Name() < ns[j].Name() }
+func (ns nodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
+
+// walk a tree in top-down (prefix) order
+func walk(tree Node, path string, fn func(path string, n Node) bool) {
+	if tree.Name() != "" {
+		path += fmt.Sprintf("/%s", tree.Name())
+	}
+	kontinue := fn(path, tree)
+	if cmp, ok := tree.(Compound); kontinue && ok {
+		for _, n := range cmp.Children() {
+			walk(n, path, fn)
+		}
+	}
+}
+
+// walk a tree in top-down (prefix) order, sorting array keys before recursing.
+// more expensive
+func walkSorted(tree Node, path string, fn func(path string, n Node) bool) {
+	if tree.Name() != "" {
+		path += fmt.Sprintf("/%s", tree.Name())
+	}
+
+	kontinue := fn(path, tree)
+	if cmp, ok := tree.(Compound); kontinue && ok {
+		children := nodes(cmp.Children())
+		sort.Sort(children)
+		for _, n := range children {
+			walk(n, path, fn)
+		}
+	}
+}
+
+// walk a tree in bottom up (postfix) order
+func walkPostfix(tree Node, path string, fn func(path string, n Node)) {
+	if tree.Name() != "" {
+		path += fmt.Sprintf("/%s", tree.Name())
+	}
+	if cmp, ok := tree.(Compound); ok {
+		for _, n := range cmp.Children() {
+			walkPostfix(n, path, fn)
+		}
+	}
+	fn(path, tree)
+}
+
+// path computes the string path from
+func path(n Node) string {
+	var path []string
+	for {
+		if n == nil || n.Name() == "" {
+			break
+		}
+		path = append([]string{n.Name()}, path...)
+		n = n.Parent()
+	}
+	return "/" + strings.Join(path, "/")
 }
 
 type Compound interface {

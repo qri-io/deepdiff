@@ -11,123 +11,6 @@ import (
 	"testing"
 )
 
-var aJSON = `{
-	"a": 100,
-	"foo": [1,2,3],
-	"bar": false,
-	"baz": {
-		"a": {
-			"b": 4,
-			"c": false,
-			"d": "apples-and-oranges"
-		},
-		"e": null,
-		"g": "apples-and-oranges"
-	}
-}`
-
-var bJSON = `{
-	"a": 99,
-	"foo": [1,2,3],
-	"bar": false,
-	"baz": {
-		"a": {
-			"b": 5,
-			"c": false,
-			"d": "apples-and-oranges"
-		},
-		"e": "thirty-thousand-something-dollars",
-		"f": false
-	}
-}`
-
-func TestDiffDotGraph(t *testing.T) {
-	var a interface{}
-	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
-		panic(err)
-	}
-
-	var b interface{}
-	if err := json.Unmarshal([]byte(bJSON), &b); err != nil {
-		panic(err)
-	}
-
-	d := &diff{cfg: &DiffConfig{}, d1: a, d2: b}
-	d.t1, d.t2, d.t1Nodes = d.prepTrees()
-	d.queueMatch(d.t1Nodes, d.t2)
-	d.optimize(d.t1, d.t2)
-
-	mkID := func(pfx string, n Node) string {
-		id := strings.Replace(path(n), "/", "", -1)
-		if id == pfx {
-			id = "root"
-		}
-		return pfx + id
-	}
-
-	buf := &bytes.Buffer{}
-	fmt.Fprintf(buf, "digraph {\n")
-
-	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
-	fmt.Fprintf(buf, "    label=\"t1\";\n")
-
-	walk(d.t1, "t1", func(p string, n Node) bool {
-		if cmp, ok := n.(Compound); ok {
-			pID := mkID("t1", cmp)
-			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
-			for _, ch := range cmp.Children() {
-				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t1", ch))
-			}
-		}
-		return true
-	})
-	fmt.Fprintf(buf, "  }\n")
-
-	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
-	fmt.Fprintf(buf, "    label=\"t2\";\n")
-	walk(d.t2, "t2", func(p string, n Node) bool {
-		if cmp, ok := n.(Compound); ok {
-			pID := mkID("t2", cmp)
-			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
-			for _, ch := range cmp.Children() {
-				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t2", ch))
-			}
-		}
-		return true
-	})
-	fmt.Fprintf(buf, "  }\n\n")
-
-	walk(d.t2, "", func(p string, n Node) bool {
-		nID := mkID("t2", n)
-		if n.Match() != nil {
-			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))
-		}
-		return true
-	})
-
-	fmt.Fprintf(buf, "}")
-
-	ioutil.WriteFile("testdata/graph.dot", buf.Bytes(), os.ModePerm)
-}
-
-// func TestBasicDiff(t *testing.T) {
-// 	var a interface{}
-// 	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
-// 		panic(err)
-// 	}
-
-// 	var b interface{}
-// 	if err := json.Unmarshal([]byte(bJSON), &b); err != nil {
-// 		panic(err)
-// 	}
-
-// 	// TODO (b5): test output
-// 	// Diff(a, b)
-// 	_, := Diff(a, b)
-// 	// data, _ := json.MarshalIndent(ds, "", "  ")
-// 	// fmt.Println(string(data))
-// }
-
 type TestCase struct {
 	description string   // description of what test is checking
 	src, dst    string   // express test cases as json strings
@@ -288,6 +171,156 @@ func TestMoveDiffs(t *testing.T) {
 	RunTestCases(t, cases, func(o *DiffConfig) {
 		o.MoveDeltas = true
 	})
+}
+
+func TestInsertGeneralizing(t *testing.T) {
+	cases := []TestCase{
+		// {
+		// 	"grouping object insertion",
+		// 	`[{"a":"a", "b":"b"},{"c":"c"}]`,
+		// 	`[{"a":"a", "b":"b"},{"c":"c","d":{"this":"is","a":"big","insertion":{"object":5,"nesting":[true]}}}]`,
+		// 	[]*Delta{
+		// 		{Type: DTInsert, DstPath: "/1/d", DstVal: map[string]interface{}{
+		// 			"this": "is",
+		// 			"a":    "big",
+		// 			"insertion": map[string]interface{}{
+		// 				"object":  float64(5),
+		// 				"nesting": []interface{}{true},
+		// 			},
+		// 		}},
+		// 	},
+		// },
+		{
+			"real-world large stats object insertion",
+			`{"bodyPath":"/ipfs/QmUNYnjzjTJyBEY3gXzQuGaXeawoFpmCi3UxjpbN4mvnib","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmcHeeUmiDQE97rHw8GSCKWfsMXsLyqw1xrwxDA34XSqNE","qri":"cm:0","signature":"jq8TIriZaUqWyoXwr/vhPZyuZkxFttL9Bse67yoPszWPdKn8KhO7+DGBkVc/VQYdNaGoWRLajRtlcv8avp5RADyJEA3hc2SGsfYW4X+I5Wyj6ckD9p4UfRMrYakJT5yGDlfa0OW0T306k6VTt3v4O93Jj1hBNS45xsZ/TKSRGwiA9l5uh2Xt2XMTRPeFvDImdTomhB5mZBfLCHp7tj2i7G892JQPz9lidiyq0KrF7I6xRXbCoW3DMq9q63xWCnN8dnUpOEn+mupv+KL36Dzl3cE78fcKL0M/6WHP9T4OxyaQ/CEYOQA4RlJbcXMX9jLFnYsCht8Vxq7ffqTlRKP8lA==","timestamp":"2019-02-22T14:21:27.038532Z","title":"created dataset"},"meta":{"accessPath":"https://theunitedstates.io/","citations":[{}],"description":"Processed list of current legislators from @unitedstates.\n\n@unitedstates is a shared commons of data and tools for the United States. Made by the public, used by the public. ","downloadPath":"https://theunitedstates.io/congress-legislators/legislators-current.json","keywords":["us","gov","congress","538"],"license":{"type":"CC0 - Creative Commons Zero Public Domain Dedication","url":"https://creativecommons.org/publicdomain/zero/1.0/"},"qri":"md:0","theme":["government"],"title":"US Members of Congress"},"name":"us_current_legislators","path":"/ipfs/QmST56YbcS7Um3vpwLwWDTZozPHPttc1N6Jd19uU1W2z4t/dataset.json","peername":"b5","qri":"ds:0","structure":{"checksum":"QmXzzSj4UNqdCo4yX3t6ELfFi5QoEyj8zi9mkqiJofN1PC","depth":2,"errCount":0,"entries":538,"format":"json","length":87453,"qri":"st:0","schema":{"type":"array"}},"transform":{"qri":"tf:0","scriptPath":"/ipfs/QmSzYwaciz5C75BGzqVho24ngmhwMm5CcqVUPrPAwqPNWc","syntax":"starlark","syntaxVersion":"0.2.2-dev"}}`,
+			`{"bodyPath":"/ipfs/QmUNYnjzjTJyBEY3gXzQuGaXeawoFpmCi3UxjpbN4mvnib","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmR5JTQxxjJPrZBL4neynAyv2WLuXQujR9NoLkfcahc34W","qri":"cm:0","signature":"jy3JiFNVgcGn8pcm1Vuv9Z3AbVl18Yh7z3Bj+N8t5lz0/OY+ZxbBrNPXVx/M6FgbPA9RzFGzgJ8xKudBsqS94kJaQ9yg2zvNmZxufiFs3YxoIhxPabod0fY5Whq91Ns3Ov3AOCKarIYpXyAdFDvpRQ3VSyqwaTNc9lheutEDeFHmW5BGFNsA/NXhbPIocgE3G48PYUXIRInwaFhsLjpcFSwn/cG+Xbkly0OrOYtCTS5hZ0aBPbk6FAAu6l6BVGbxDduflYyt8UFpdiinJf8S7G+l5nwO0VlQwTT47q3CkcPAdQTtTxHnz4mYwaWPGeqryBi4TO6PXlmbRDLaQ8v3dQ==","timestamp":"2019-02-23T23:12:25.886874Z","title":"forced update"},"meta":{"accessPath":"https://theunitedstates.io/","citations":[{}],"description":"Processed list of current legislators from @unitedstates.\n\n@unitedstates is a shared commons of data and tools for the United States. Made by the public, used by the public. ","downloadPath":"https://theunitedstates.io/congress-legislators/legislators-current.json","keywords":["us","gov","congress","538"],"license":{"type":"CC0 - Creative Commons Zero Public Domain Dedication","url":"https://creativecommons.org/publicdomain/zero/1.0/"},"qri":"md:0","theme":["government"],"title":"US Members of Congress"},"name":"us_current_legislators","path":"/ipfs/QmTV1n5BfQnG4EigyRJUP3466FRPgDFEbckva6mEmtLR97/dataset.json","peername":"b5","previousPath":"/ipfs/QmST56YbcS7Um3vpwLwWDTZozPHPttc1N6Jd19uU1W2z4t","qri":"ds:0","stats":{"bioguide":{"count":538,"maxLength":7,"minLength":7,"type":"string"},"birthday":{"count":538,"maxLength":10,"minLength":10,"type":"string"},"first":{"count":538,"maxLength":11,"minLength":2,"type":"string"},"full":{"count":538,"maxLength":30,"minLength":6,"type":"string"},"gender":{"count":538,"maxLength":1,"minLength":1,"type":"string"},"last":{"count":538,"maxLength":17,"minLength":3,"type":"string"},"party":{"count":538,"maxLength":11,"minLength":8,"type":"string"},"religion":{"count":538,"max":0,"min":0,"type":"integer"},"state":{"count":538,"maxLength":2,"minLength":2,"type":"string"}},"structure":{"checksum":"QmXzzSj4UNqdCo4yX3t6ELfFi5QoEyj8zi9mkqiJofN1PC","depth":2,"errCount":0,"entries":538,"format":"json","length":87453,"qri":"st:0","schema":{"type":"array"}},"transform":{"qri":"tf:0","scriptPath":"/ipfs/QmSzYwaciz5C75BGzqVho24ngmhwMm5CcqVUPrPAwqPNWc","syntax":"starlark","syntaxVersion":"0.2.2-dev"}}`,
+			[]*Delta{
+				{Type: DTUpdate, SrcPath: "/commit/path", DstPath: "/commit/path", SrcVal: "/ipfs/QmcHeeUmiDQE97rHw8GSCKWfsMXsLyqw1xrwxDA34XSqNE", DstVal: "/ipfs/QmR5JTQxxjJPrZBL4neynAyv2WLuXQujR9NoLkfcahc34W"},
+				{Type: DTUpdate, SrcPath: "/commit/signature", DstPath: "/commit/signature", SrcVal: "jq8TIriZaUqWyoXwr/vhPZyuZkxFttL9Bse67yoPszWPdKn8KhO7+DGBkVc/VQYdNaGoWRLajRtlcv8avp5RADyJEA3hc2SGsfYW4X+I5Wyj6ckD9p4UfRMrYakJT5yGDlfa0OW0T306k6VTt3v4O93Jj1hBNS45xsZ/TKSRGwiA9l5uh2Xt2XMTRPeFvDImdTomhB5mZBfLCHp7tj2i7G892JQPz9lidiyq0KrF7I6xRXbCoW3DMq9q63xWCnN8dnUpOEn+mupv+KL36Dzl3cE78fcKL0M/6WHP9T4OxyaQ/CEYOQA4RlJbcXMX9jLFnYsCht8Vxq7ffqTlRKP8lA==", DstVal: "jy3JiFNVgcGn8pcm1Vuv9Z3AbVl18Yh7z3Bj+N8t5lz0/OY+ZxbBrNPXVx/M6FgbPA9RzFGzgJ8xKudBsqS94kJaQ9yg2zvNmZxufiFs3YxoIhxPabod0fY5Whq91Ns3Ov3AOCKarIYpXyAdFDvpRQ3VSyqwaTNc9lheutEDeFHmW5BGFNsA/NXhbPIocgE3G48PYUXIRInwaFhsLjpcFSwn/cG+Xbkly0OrOYtCTS5hZ0aBPbk6FAAu6l6BVGbxDduflYyt8UFpdiinJf8S7G+l5nwO0VlQwTT47q3CkcPAdQTtTxHnz4mYwaWPGeqryBi4TO6PXlmbRDLaQ8v3dQ=="},
+				{Type: DTUpdate, SrcPath: "/commit/timestamp", DstPath: "/commit/timestamp", SrcVal: "2019-02-22T14:21:27.038532Z", DstVal: "2019-02-23T23:12:25.886874Z"},
+				{Type: DTUpdate, SrcPath: "/commit/title", DstPath: "/commit/title", SrcVal: "created dataset", DstVal: "forced update"},
+				{Type: DTUpdate, SrcPath: "/path", DstPath: "/path", SrcVal: "/ipfs/QmST56YbcS7Um3vpwLwWDTZozPHPttc1N6Jd19uU1W2z4t/dataset.json", DstVal: "/ipfs/QmTV1n5BfQnG4EigyRJUP3466FRPgDFEbckva6mEmtLR97/dataset.json"},
+				{Type: DTInsert, SrcPath: "", DstPath: "/previousPath", DstVal: "/ipfs/QmST56YbcS7Um3vpwLwWDTZozPHPttc1N6Jd19uU1W2z4t"},
+				{Type: DTInsert, SrcPath: "", DstPath: "/stats", DstVal: map[string]interface{}{
+					"bioguide": map[string]interface{}{"count": float64(538), "maxLength": float64(7), "minLength": float64(7), "type": "string"},
+					"birthday": map[string]interface{}{"count": float64(538), "maxLength": float64(10), "minLength": float64(10), "type": "string"},
+					"first":    map[string]interface{}{"count": float64(538), "maxLength": float64(11), "minLength": float64(2), "type": "string"},
+					"full":     map[string]interface{}{"count": float64(538), "maxLength": float64(30), "minLength": float64(6), "type": "string"},
+					"gender":   map[string]interface{}{"count": float64(538), "maxLength": float64(1), "minLength": float64(1), "type": "string"},
+					"last":     map[string]interface{}{"count": float64(538), "maxLength": float64(17), "minLength": float64(3), "type": "string"},
+					"party":    map[string]interface{}{"count": float64(538), "maxLength": float64(11), "minLength": float64(8), "type": "string"},
+					"religion": map[string]interface{}{"count": float64(538), "max": float64(0), "min": float64(0), "type": "integer"},
+					"state":    map[string]interface{}{"count": float64(538), "maxLength": float64(2), "minLength": float64(2), "type": "string"},
+				},
+				},
+			},
+		},
+	}
+
+	RunTestCases(t, cases)
+}
+
+func TestDiffDotGraph(t *testing.T) {
+	var aJSON = `{
+		"a": 100,
+		"foo": [1,2,3],
+		"bar": false,
+		"baz": {
+			"a": {
+				"b": 4,
+				"c": false,
+				"d": "apples-and-oranges"
+			},
+			"e": null,
+			"g": "apples-and-oranges"
+		}
+	}`
+
+	var bJSON = `{
+		"a": 99,
+		"foo": [1,2,3],
+		"bar": false,
+		"baz": {
+			"a": {
+				"b": 5,
+				"c": false,
+				"d": "apples-and-oranges"
+			},
+			"e": "thirty-thousand-something-dollars",
+			"f": false
+		}
+	}`
+
+	var a interface{}
+	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
+		panic(err)
+	}
+
+	var b interface{}
+	if err := json.Unmarshal([]byte(bJSON), &b); err != nil {
+		panic(err)
+	}
+
+	d := &diff{cfg: &DiffConfig{}, d1: a, d2: b}
+	d.t1, d.t2, d.t1Nodes = d.prepTrees()
+	d.queueMatch(d.t1Nodes, d.t2)
+	d.optimize(d.t1, d.t2)
+
+	buf := dotGraphTree(d)
+	ioutil.WriteFile("testdata/graph.dot", buf.Bytes(), os.ModePerm)
+}
+
+func dotGraphTree(d *diff) *bytes.Buffer {
+	mkID := func(pfx string, n Node) string {
+		id := strings.Replace(path(n), "/", "", -1)
+		if id == pfx {
+			id = "root"
+		}
+		return pfx + id
+	}
+
+	buf := &bytes.Buffer{}
+	fmt.Fprintf(buf, "digraph {\n")
+
+	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
+	fmt.Fprintf(buf, "    label=\"t1\";\n")
+
+	walk(d.t1, "t1", func(p string, n Node) bool {
+		if cmp, ok := n.(Compound); ok {
+			pID := mkID("t1", cmp)
+			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
+			for _, ch := range cmp.Children() {
+				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t1", ch))
+			}
+		}
+		return true
+	})
+	fmt.Fprintf(buf, "  }\n")
+
+	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
+	fmt.Fprintf(buf, "    label=\"t2\";\n")
+	walk(d.t2, "t2", func(p string, n Node) bool {
+		if cmp, ok := n.(Compound); ok {
+			pID := mkID("t2", cmp)
+			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
+			for _, ch := range cmp.Children() {
+				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t2", ch))
+			}
+		}
+		return true
+	})
+	fmt.Fprintf(buf, "  }\n\n")
+
+	walk(d.t2, "", func(p string, n Node) bool {
+		nID := mkID("t2", n)
+		if n.Match() != nil {
+			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))
+		}
+		return true
+	})
+
+	fmt.Fprintf(buf, "}")
+	return buf
 }
 
 func BenchmarkDiff1(b *testing.B) {

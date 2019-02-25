@@ -12,10 +12,15 @@ import (
 	"sync"
 )
 
+// DiffConfig are any possible configuration parameters for calculating diffs
 type DiffConfig struct {
+	// If true Diff will calculate "moves" that describe changing the parent of
+	// a subtree
 	MoveDeltas bool
 }
 
+// DiffOption is a function that adjust a config, zero or more DiffOptions
+// can be passed to the Diff function
 type DiffOption func(cfg *DiffConfig)
 
 // Diff computes a slice of deltas that define an edit script for turning the
@@ -30,6 +35,8 @@ func Diff(d1, d2 interface{}, opts ...DiffOption) []*Delta {
 	return difff.diff()
 }
 
+// diff is a state machine for calculating an edit script that transitions between
+// two state trees
 type diff struct {
 	cfg     *DiffConfig
 	d1, d2  interface{}
@@ -37,58 +44,53 @@ type diff struct {
 	t1Nodes map[string][]Node
 }
 
+// diff calculates a structl diff for two given tree states
+// generating an edit script as a list of Delta changes:
+//
+// 1. register in a map a unique signature (hash value) for every
+//    subtree of the d1 (old) document
+// 2. consider every subtree in d2 document, starting from the
+//    largest. check if it is identitical to some the subtrees in
+//    d1, if so match both subtrees.
+// 3. attempt to match the parents of two matched subtrees
+//    by checking labels (in our case, types of parent object or array)
+//    controlling for bad matches based on length of path to the
+//    ancestor and the weight of the matching subtrees. eg: a large
+//    subtree may force the matching of its ancestors up to the root
+//    a small subtree may not even force matching of its parent
+// 4. Consider the largest subtrees of d2 in order. If one candidate
+//    has it's parent already matched to the parent of the considered
+//    node, it is certianly the best candidate.
+// 5. At this point we might have matched all of d2. A node may not
+//    match b/c its been inserted, or we missed matching it. We can now
+//    do peephole optimization pass to retry some of the rejected nodes
+//    once no more matchings can be obtained, unmatched nodes in d2
+//    correspond to inserted nodes.
+// 6. consider each matching node and decide if the node is at its right
+//    place, or whether it has been moved.
 func (d *diff) diff() []*Delta {
 	d.t1, d.t2, d.t1Nodes = d.prepTrees()
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
+	// TODO (b5): a second optimize pass seems to help greatly on larger diffs, which
+	// to me seems we should propagating matches more aggressively in the optimize pass,
+	// removing the need for this second call (which is effectively doing the same
+	// thing as recursive/aggressive match propagation)
 	d.optimize(d.t1, d.t2)
 	return d.computeDeltas(d.t1, d.t2)
-}
-
-func walk(tree Node, path string, fn func(path string, n Node) bool) {
-	if tree.Name() != "" {
-		path += fmt.Sprintf("/%s", tree.Name())
-	}
-	kontinue := fn(path, tree)
-	if cmp, ok := tree.(Compound); kontinue && ok {
-		for _, n := range cmp.Children() {
-			walk(n, path, fn)
-		}
-	}
-}
-
-func walkPostfix(tree Node, path string, fn func(path string, n Node)) {
-	if tree.Name() != "" {
-		path += fmt.Sprintf("/%s", tree.Name())
-	}
-	if cmp, ok := tree.(Compound); ok {
-		for _, n := range cmp.Children() {
-			walkPostfix(n, path, fn)
-		}
-	}
-	fn(path, tree)
-}
-
-func path(n Node) string {
-	var path []string
-	for {
-		if n == nil || n.Name() == "" {
-			break
-		}
-		path = append([]string{n.Name()}, path...)
-		n = n.Parent()
-	}
-	return "/" + strings.Join(path, "/")
 }
 
 // NewHash returns a new hash interface, wrapped in a function for easy
 // hash algorithm switching, package consumers can override NewHash
 // with their own desired hash.Hash implementation if the value space is
-// particularly large. default is 32-bit FNV 1 for fast, cheap hashing
+// particularly large. default is 64-bit FNV 1 for fast, cheap,
+// (non-cryptographic) hashing
 var NewHash = func() hash.Hash {
 	return fnv.New64()
 }
 
+// hashString converts a hash sum to a string using hex encoding
+// localized here for easy ecnsoding swapping
 func hashStr(sum []byte) string {
 	return hex.EncodeToString(sum)
 }
@@ -148,10 +150,7 @@ func matchNodes(n1, n2 Node) {
 	n1p := n1.Parent()
 	n2p := n2.Parent()
 	for n1p != nil && n2p != nil {
-		// TODO - root name is coming back as "", need to think about why this is
-		// and weather it's ok to match roots
 		if n1p.Name() == n2p.Name() && n1p.Name() != "" && n2p.Name() != "" {
-			// fmt.Printf("also matching %s %s %s %d\n", path(n1p), path(n2p), n1p.Name(), n1p.Type())
 			n1p.SetMatch(n2p)
 			n2p.SetMatch(n1p)
 			n1p = n1p.Parent()
@@ -161,7 +160,6 @@ func matchNodes(n1, n2 Node) {
 	}
 }
 
-// bestCandidate is the one who's parent
 func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 	maxDist := 1 + float32(n2.Weight())/float32(t2Weight)
 	dist := 1 + float32(n2.Parent().Weight()-n2.Weight())/float32(t2Weight)
@@ -186,25 +184,20 @@ func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 }
 
 func (d *diff) optimize(t1, t2 Node) {
-	// var wg sync.WaitGroup
 	walkPostfix(t1, "", func(p string, n Node) {
-		// wg.Add(1)
-		// go func() {
 		propagateMatchToParent(n)
-		propagateMatchToChildren(n)
-		// wg.Done()
-		// }()
 	})
-	// wg.Wait()
 	walkPostfix(t2, "", func(p string, n Node) {
-		// wg.Add(1)
-		// go func() {
 		propagateMatchToParent(n)
-		propagateMatchToChildren(n)
-		// wg.Done()
-		// }()
 	})
-	// wg.Wait()
+	walk(t1, "", func(p string, n Node) bool {
+		propagateMatchToChildren(n)
+		return true
+	})
+	walk(t2, "", func(p string, n Node) bool {
+		propagateMatchToChildren(n)
+		return true
+	})
 }
 
 func propagateMatchToParent(n Node) {
@@ -213,8 +206,9 @@ func propagateMatchToParent(n Node) {
 		var match Node
 		// iterate each child
 		for _, ch := range cmp.Children() {
-			// if this child has a match
-			if m := ch.Match(); m != nil && m.Parent() != nil {
+			// if this child has a match, and the matches parent doesn't have a match,
+			// match the parents
+			if m := ch.Match(); m != nil && m.Parent() != nil && m.Parent().Match() == nil {
 				p := m.Parent()
 				if match == nil {
 					match = p
@@ -225,8 +219,7 @@ func propagateMatchToParent(n Node) {
 			}
 		}
 		if match != nil {
-			n.SetMatch(match)
-			match.SetMatch(n)
+			matchNodes(match, n)
 		}
 	}
 }
@@ -245,7 +238,7 @@ func propagateMatchToChildren(n Node) {
 			}
 			if n1.Type() == ntArray && n2.Type() == ntArray && len(n1.Children()) == len(n2.Children()) {
 				// if arrays are the same length, match all children
-				// b/c these are arrays, no names should be missing, safe to skip check
+				// b/c these are arrays, no names should be missing, safe to skip a name check
 				for _, n1ch := range n1.Children() {
 					n2ch := n2.Child(n1ch.Name())
 					n2ch.SetMatch(n1ch)
@@ -256,15 +249,9 @@ func propagateMatchToChildren(n Node) {
 	}
 }
 
-func (d *diff) computeDeltas(t1, t2 Node) []*Delta {
-	ds := d.calcDeltas(t1, t2)
-	return ds
-}
-
 // calculate inserts, changes, deletes, & moves
-func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
-	// fmt.Println("calc moves?", d.cfg.MoveDeltas)
-	walk(t1, "", func(p string, n Node) bool {
+func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
+	walkSorted(t1, "", func(p string, n Node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
 				Type:    DTDelete,
@@ -300,7 +287,9 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 	})
 
 	var parentMoves []*Delta
-	walk(t2, "", func(p string, n Node) bool {
+	fmt.Println("--")
+	walkSorted(t2, "", func(p string, n Node) bool {
+		fmt.Println(p)
 		match := n.Match()
 		if match == nil {
 			delta := &Delta{
@@ -368,8 +357,6 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 				// break matching to prevent connection later on
 				match.Parent().SetMatch(nil)
 				n.Parent().SetMatch(nil)
-				// match.SetMatch(nil)
-				// n.SetMatch(nil)
 
 				return false
 			}
@@ -388,7 +375,7 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 
 	if d.cfg.MoveDeltas {
 		var cleanups []string
-		walk(t2, "", func(p string, n Node) bool {
+		walkSorted(t2, "", func(p string, n Node) bool {
 			if n.Type() == ntArray && n.Match() != nil {
 				// matches to same array-type parent require checking for shuffles within the parent
 				// *expensive*
@@ -422,9 +409,11 @@ func (d *diff) calcDeltas(t1, t2 Node) (dts []*Delta) {
 
 // calcReorderDeltas creates deltas that describes moves within the same parent
 // it starts by calculates the largest (order preserving) common subsequence between
-// two matched parent Compound nodes
+// two matched parent Compound nodes. Background on LCSS:
 // https://en.wikipedia.org/wiki/Longest_common_subsequence_problem
 //
+// reorder calculation is shingled into sets of maximum 50 values & processed parallel
+// to keep things fast at the expense of missing some common sequences from longer lists
 func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 	var wg sync.WaitGroup
 	max := len(a)
@@ -438,7 +427,6 @@ func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 	for i := 0; i <= max/pageSize; i++ {
 		var aPage, bPage []Node
 		start := (i * pageSize)
-		// fmt.Println(start, start+pageSize, a, b)
 		if (start + pageSize) > aRem {
 			aPage = a[start:]
 		} else {
@@ -484,12 +472,9 @@ func movedBNodes(allA, allB []Node) []*Delta {
 	c[0] = make([]int, n)
 
 	for i := 1; i < m; i++ {
-		// fmt.Printf("%d\n", i)
 		c[i] = make([]int, n)
 		for j := 1; j < n; j++ {
 			if a[i-1].Match() != nil && b[j-1].Match() != nil {
-				// reflect.DeepEqual(a[i-1].Value(), b[j-1].Value())
-				// a[i-1].Name() == b[j-1].Name()
 				if bytes.Equal(a[i-1].Hash(), b[j-1].Hash()) {
 					c[i][j] = c[i-1][j-1] + 1
 				} else {
@@ -564,14 +549,8 @@ SET:
 	return
 }
 
-// function backtrack(C[0..m,0..n], X[1..m], Y[1..n], i, j)
-//   if i = 0 or j = 0
-//       return ""
-//   if  X[i] = Y[j]
-//       return backtrack(C, X, Y, i-1, j-1) + X[i]
-//   if C[i,j-1] > C[i-1,j]
-//       return backtrack(C, X, Y, i, j-1)
-//   return backtrack(C, X, Y, i-1, j)
+// backtrack walks the "a" side of a common sequence matrix backward, constructing the
+// secuence of nodes from the "a" (lefthand) Node list
 func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	if i == 0 || j == 0 {
 		return
@@ -579,7 +558,8 @@ func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 
 	if bytes.Equal(a[i-1].Hash(), b[j-1].Hash()) {
 		// TODO (b5): I think this is where we can backtrack based on which node
-		// has the greater weight by taking, need to check
+		// has the greater weight by taking different paths in the commonalitiy index matrix
+		// need to check...
 		// if b[j].Weight() > a[i].Weight() {
 		// fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
 		*ss = append([]Node{a[i-1]}, *ss...)
@@ -598,6 +578,8 @@ func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	return
 }
 
+// backtrack walks the "b" side of a common sequence matrix backward, constructing the
+// secuence of nodes from the "b" (righthand) Node list
 func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	if i == 0 || j == 0 {
 		return
@@ -605,7 +587,8 @@ func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 
 	if bytes.Equal(a[i-1].Hash(), b[j-1].Hash()) {
 		// TODO (b5): I think this is where we can backtrack based on which node
-		// has the greater weight by taking, need to check
+		// has the greater weight by taking different paths in the commonalitiy index matrix
+		// need to check...
 		// if b[j].Weight() > a[i].Weight() {
 		// fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
 		*ss = append([]Node{b[j-1]}, *ss...)
@@ -624,6 +607,7 @@ func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 	return
 }
 
+// compareScalar compares two scalar values
 func compareScalar(n1, n2 Node, n2Path string) *Delta {
 	if n1.Type() != n2.Type() {
 		return &Delta{
