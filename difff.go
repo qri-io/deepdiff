@@ -3,7 +3,6 @@ package difff
 import (
 	"bytes"
 	"encoding/hex"
-	"fmt"
 	"hash"
 	"hash/fnv"
 	"reflect"
@@ -287,9 +286,7 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 	})
 
 	var parentMoves []*Delta
-	fmt.Println("--")
 	walkSorted(t2, "", func(p string, n Node) bool {
-		fmt.Println(p)
 		match := n.Match()
 		if match == nil {
 			delta := &Delta{

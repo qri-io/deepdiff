@@ -66,7 +66,7 @@ func walkSorted(tree Node, path string, fn func(path string, n Node) bool) {
 		children := nodes(cmp.Children())
 		sort.Sort(children)
 		for _, n := range children {
-			walk(n, path, fn)
+			walkSorted(n, path, fn)
 		}
 	}
 }
