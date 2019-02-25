@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// Patch applies a change script (patch) to a value
 func Patch(v interface{}, patch []*Delta) (err error) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {

@@ -175,21 +175,21 @@ func TestMoveDiffs(t *testing.T) {
 
 func TestInsertGeneralizing(t *testing.T) {
 	cases := []TestCase{
-		// {
-		// 	"grouping object insertion",
-		// 	`[{"a":"a", "b":"b"},{"c":"c"}]`,
-		// 	`[{"a":"a", "b":"b"},{"c":"c","d":{"this":"is","a":"big","insertion":{"object":5,"nesting":[true]}}}]`,
-		// 	[]*Delta{
-		// 		{Type: DTInsert, DstPath: "/1/d", DstVal: map[string]interface{}{
-		// 			"this": "is",
-		// 			"a":    "big",
-		// 			"insertion": map[string]interface{}{
-		// 				"object":  float64(5),
-		// 				"nesting": []interface{}{true},
-		// 			},
-		// 		}},
-		// 	},
-		// },
+		{
+			"grouping object insertion",
+			`[{"a":"a", "b":"b"},{"c":"c"}]`,
+			`[{"a":"a", "b":"b"},{"c":"c","d":{"this":"is","a":"big","insertion":{"object":5,"nesting":[true]}}}]`,
+			[]*Delta{
+				{Type: DTInsert, DstPath: "/1/d", DstVal: map[string]interface{}{
+					"this": "is",
+					"a":    "big",
+					"insertion": map[string]interface{}{
+						"object":  float64(5),
+						"nesting": []interface{}{true},
+					},
+				}},
+			},
+		},
 		{
 			"real-world large stats object insertion",
 			`{"bodyPath":"/ipfs/QmUNYnjzjTJyBEY3gXzQuGaXeawoFpmCi3UxjpbN4mvnib","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmcHeeUmiDQE97rHw8GSCKWfsMXsLyqw1xrwxDA34XSqNE","qri":"cm:0","signature":"jq8TIriZaUqWyoXwr/vhPZyuZkxFttL9Bse67yoPszWPdKn8KhO7+DGBkVc/VQYdNaGoWRLajRtlcv8avp5RADyJEA3hc2SGsfYW4X+I5Wyj6ckD9p4UfRMrYakJT5yGDlfa0OW0T306k6VTt3v4O93Jj1hBNS45xsZ/TKSRGwiA9l5uh2Xt2XMTRPeFvDImdTomhB5mZBfLCHp7tj2i7G892JQPz9lidiyq0KrF7I6xRXbCoW3DMq9q63xWCnN8dnUpOEn+mupv+KL36Dzl3cE78fcKL0M/6WHP9T4OxyaQ/CEYOQA4RlJbcXMX9jLFnYsCht8Vxq7ffqTlRKP8lA==","timestamp":"2019-02-22T14:21:27.038532Z","title":"created dataset"},"meta":{"accessPath":"https://theunitedstates.io/","citations":[{}],"description":"Processed list of current legislators from @unitedstates.\n\n@unitedstates is a shared commons of data and tools for the United States. Made by the public, used by the public. ","downloadPath":"https://theunitedstates.io/congress-legislators/legislators-current.json","keywords":["us","gov","congress","538"],"license":{"type":"CC0 - Creative Commons Zero Public Domain Dedication","url":"https://creativecommons.org/publicdomain/zero/1.0/"},"qri":"md:0","theme":["government"],"title":"US Members of Congress"},"name":"us_current_legislators","path":"/ipfs/QmST56YbcS7Um3vpwLwWDTZozPHPttc1N6Jd19uU1W2z4t/dataset.json","peername":"b5","qri":"ds:0","structure":{"checksum":"QmXzzSj4UNqdCo4yX3t6ELfFi5QoEyj8zi9mkqiJofN1PC","depth":2,"errCount":0,"entries":538,"format":"json","length":87453,"qri":"st:0","schema":{"type":"array"}},"transform":{"qri":"tf:0","scriptPath":"/ipfs/QmSzYwaciz5C75BGzqVho24ngmhwMm5CcqVUPrPAwqPNWc","syntax":"starlark","syntaxVersion":"0.2.2-dev"}}`,
@@ -271,7 +271,7 @@ func TestDiffDotGraph(t *testing.T) {
 }
 
 func dotGraphTree(d *diff) *bytes.Buffer {
-	mkID := func(pfx string, n Node) string {
+	mkID := func(pfx string, n node) string {
 		id := strings.Replace(path(n), "/", "", -1)
 		if id == pfx {
 			id = "root"
@@ -285,8 +285,8 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
 	fmt.Fprintf(buf, "    label=\"t1\";\n")
 
-	walk(d.t1, "t1", func(p string, n Node) bool {
-		if cmp, ok := n.(Compound); ok {
+	walk(d.t1, "t1", func(p string, n node) bool {
+		if cmp, ok := n.(compound); ok {
 			pID := mkID("t1", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
 			for _, ch := range cmp.Children() {
@@ -299,8 +299,8 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 
 	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
 	fmt.Fprintf(buf, "    label=\"t2\";\n")
-	walk(d.t2, "t2", func(p string, n Node) bool {
-		if cmp, ok := n.(Compound); ok {
+	walk(d.t2, "t2", func(p string, n node) bool {
+		if cmp, ok := n.(compound); ok {
 			pID := mkID("t2", cmp)
 			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
 			for _, ch := range cmp.Children() {
@@ -311,7 +311,7 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 	})
 	fmt.Fprintf(buf, "  }\n\n")
 
-	walk(d.t2, "", func(p string, n Node) bool {
+	walk(d.t2, "", func(p string, n node) bool {
 		nID := mkID("t2", n)
 		if n.Match() != nil {
 			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))

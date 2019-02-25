@@ -1,6 +1,5 @@
 // Package difff calculates the differences of document trees consisting of the
-// go types created by unmarshaling from JSON, consisting of two
-// complex types:
+// go types created by unmarshaling from JSON, consisting of two complex types:
 //   map[string]interface{}
 //   []interface{}
 // and five scalar types:

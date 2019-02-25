@@ -1,27 +1,26 @@
 package difff
 
-// DeltaType defines the types of changes xydiff can create
-// to describe the difference between two documents
-type DeltaType string
+// Operation defines the operation of a Delta item
+type Operation string
 
 const (
 	// DTDelete means making the children of a node
 	// become the children of a node's parent
-	DTDelete = DeltaType("delete")
+	DTDelete = Operation("delete")
 	// DTInsert is the compliment of deleting, adding
 	// children of a parent node to a new node, and making
 	// that node a child of the original parent
-	DTInsert = DeltaType("insert")
+	DTInsert = Operation("insert")
 	// DTMove is the succession of a deletion & insertion
 	// of the same node
-	DTMove = DeltaType("move")
+	DTMove = Operation("move")
 	// DTUpdate is an alteration of a scalar data type (string, bool, float, etc)
-	DTUpdate = DeltaType("update")
+	DTUpdate = Operation("update")
 )
 
 // Delta represents a change between two documents
 type Delta struct {
-	Type DeltaType
+	Type Operation
 
 	SrcPath string
 	DstPath string

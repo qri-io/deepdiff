@@ -8,8 +8,12 @@ import (
 	"strings"
 )
 
-// FormatPrettyJSON converts a []*Delta into a colored text report
-func FormatPrettyJSON(changes []*Delta) (string, error) {
+// FormatPretty converts a []*Delta into a colored text report, with:
+// red "-" for deletions
+// green "+" for insertions
+// blue "~" for changes
+// This is very much a work in progress
+func FormatPretty(changes []*Delta) (string, error) {
 	pretty := map[string]interface{}{}
 	for _, diff := range changes {
 
@@ -86,42 +90,4 @@ func writePrettyJSONString(buf *bytes.Buffer, pretty map[string]interface{}, ind
 			}
 		}
 	}
-}
-
-// FormatPrettyText converts a []*Delta into a colored text report
-func FormatPrettyText(changes []*Delta) (string, error) {
-	var buf bytes.Buffer
-
-	for _, diff := range changes {
-		var text string
-
-		switch diff.Type {
-		case DTInsert:
-			if data, err := json.Marshal(diff.DstVal); err == nil {
-				text = string(data)
-			}
-			buf.WriteString(diff.DstPath)
-			buf.WriteString("  \x1b[32m")
-			buf.WriteString(text)
-			buf.WriteString("\x1b[0m\n")
-		case DTDelete:
-			if data, err := json.Marshal(diff.SrcVal); err == nil {
-				text = string(data)
-			}
-			buf.WriteString(diff.SrcPath)
-			buf.WriteString("  \x1b[31m")
-			buf.WriteString(text)
-			buf.WriteString("\x1b[0m\n")
-		case DTUpdate:
-			if data, err := json.Marshal(diff.DstVal); err == nil {
-				text = string(data)
-			}
-			buf.WriteString(diff.DstPath)
-			buf.WriteString("  \x1b[34m")
-			buf.WriteString(text)
-			buf.WriteString("\x1b[0m\n")
-		}
-	}
-
-	return buf.String(), nil
 }

@@ -39,16 +39,16 @@ func Diff(d1, d2 interface{}, opts ...DiffOption) []*Delta {
 type diff struct {
 	cfg     *DiffConfig
 	d1, d2  interface{}
-	t1, t2  Node
-	t1Nodes map[string][]Node
+	t1, t2  node
+	t1Nodes map[string][]node
 }
 
 // diff calculates a structl diff for two given tree states
 // generating an edit script as a list of Delta changes:
 //
-// 1. register in a map a unique signature (hash value) for every
+// 1. prepTrees - register in a map a unique signature (hash value) for every
 //    subtree of the d1 (old) document
-// 2. consider every subtree in d2 document, starting from the
+// 2. queueMatch - consider every subtree in d2 document, starting from the
 //    largest. check if it is identitical to some the subtrees in
 //    d1, if so match both subtrees.
 // 3. attempt to match the parents of two matched subtrees
@@ -94,14 +94,14 @@ func hashStr(sum []byte) string {
 	return hex.EncodeToString(sum)
 }
 
-func (d *diff) queueMatch(t1Nodes map[string][]Node, t2 Node) {
-	queue := make(chan Node)
+func (d *diff) queueMatch(t1Nodes map[string][]node, t2 node) {
+	queue := make(chan node)
 	done := make(chan struct{})
 	considering := 1
 	t2Weight := t2.Weight()
 
 	go func() {
-		var candidates []Node
+		var candidates []node
 		for n2 := range queue {
 			key := hashStr(n2.Hash())
 
@@ -110,10 +110,10 @@ func (d *diff) queueMatch(t1Nodes map[string][]Node, t2 Node) {
 			switch len(candidates) {
 			case 0:
 				// no candidates. check if node has children. If so, add them.
-				if n2c, ok := n2.(Compound); ok {
+				if n2c, ok := n2.(compound); ok {
 					for _, ch := range n2c.Children() {
 						considering++
-						go func(n Node) {
+						go func(n node) {
 							queue <- n
 						}(ch)
 					}
@@ -143,7 +143,7 @@ func (d *diff) queueMatch(t1Nodes map[string][]Node, t2 Node) {
 
 // matchNodes connects two nodes & tries to propagate that match upward to
 // ancestors so long as labels match
-func matchNodes(n1, n2 Node) {
+func matchNodes(n1, n2 node) {
 	n1.SetMatch(n2)
 	n2.SetMatch(n1)
 	n1p := n1.Parent()
@@ -159,7 +159,7 @@ func matchNodes(n1, n2 Node) {
 	}
 }
 
-func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
+func bestCandidate(t1Candidates []node, n2 node, t2Weight int) {
 	maxDist := 1 + float32(n2.Weight())/float32(t2Weight)
 	dist := 1 + float32(n2.Parent().Weight()-n2.Weight())/float32(t2Weight)
 	n2 = n2.Parent()
@@ -182,27 +182,27 @@ func bestCandidate(t1Candidates []Node, n2 Node, t2Weight int) {
 	}
 }
 
-func (d *diff) optimize(t1, t2 Node) {
-	walkPostfix(t1, "", func(p string, n Node) {
+func (d *diff) optimize(t1, t2 node) {
+	walkPostfix(t1, "", func(p string, n node) {
 		propagateMatchToParent(n)
 	})
-	walkPostfix(t2, "", func(p string, n Node) {
+	walkPostfix(t2, "", func(p string, n node) {
 		propagateMatchToParent(n)
 	})
-	walk(t1, "", func(p string, n Node) bool {
+	walk(t1, "", func(p string, n node) bool {
 		propagateMatchToChildren(n)
 		return true
 	})
-	walk(t2, "", func(p string, n Node) bool {
+	walk(t2, "", func(p string, n node) bool {
 		propagateMatchToChildren(n)
 		return true
 	})
 }
 
-func propagateMatchToParent(n Node) {
+func propagateMatchToParent(n node) {
 	// if n is a compound type that isn't matched
-	if cmp, ok := n.(Compound); ok && n.Match() == nil {
-		var match Node
+	if cmp, ok := n.(compound); ok && n.Match() == nil {
+		var match node
 		// iterate each child
 		for _, ch := range cmp.Children() {
 			// if this child has a match, and the matches parent doesn't have a match,
@@ -223,10 +223,10 @@ func propagateMatchToParent(n Node) {
 	}
 }
 
-func propagateMatchToChildren(n Node) {
+func propagateMatchToChildren(n node) {
 	// if a node is matched & a compound type,
-	if n1, ok := n.(Compound); ok && n.Match() != nil {
-		if n2, ok := n.Match().(Compound); ok {
+	if n1, ok := n.(compound); ok && n.Match() != nil {
+		if n2, ok := n.Match().(compound); ok {
 			if n1.Type() == ntObject && n2.Type() == ntObject {
 				// match any key names
 				for _, n1ch := range n1.Children() {
@@ -249,8 +249,8 @@ func propagateMatchToChildren(n Node) {
 }
 
 // calculate inserts, changes, deletes, & moves
-func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
-	walkSorted(t1, "", func(p string, n Node) bool {
+func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
+	walkSorted(t1, "", func(p string, n node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
 				Type:    DTDelete,
@@ -263,7 +263,7 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 			// accurate. only place where this really applies is parent of delete is
 			// an array (object paths will remain accurate)
 			if parent := n.Parent(); parent != nil {
-				if cmp, ok := parent.(Compound); ok && cmp.Type() == ntArray {
+				if cmp, ok := parent.(compound); ok && cmp.Type() == ntArray {
 					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
 					if err != nil {
 						panic(err)
@@ -286,7 +286,7 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 	})
 
 	var parentMoves []*Delta
-	walkSorted(t2, "", func(p string, n Node) bool {
+	walkSorted(t2, "", func(p string, n node) bool {
 		match := n.Match()
 		if match == nil {
 			delta := &Delta{
@@ -306,7 +306,7 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 						panic(err)
 					}
 					idx := int(idx64)
-					for i, n := range match.(Compound).Children() {
+					for i, n := range match.(compound).Children() {
 						if i > idx {
 							n.SetName(strconv.Itoa(i + 1))
 						}
@@ -343,7 +343,7 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 							panic(err)
 						}
 						idx := int(idx64)
-						for i, n := range match.(Compound).Children() {
+						for i, n := range match.(compound).Children() {
 							if i > idx {
 								n.SetName(strconv.Itoa(i + 1))
 							}
@@ -359,7 +359,7 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 			}
 		}
 
-		if _, ok := n.(Compound); !ok {
+		if _, ok := n.(compound); !ok {
 			// check if value is scalar, creating a change delta if so
 			// TODO (b5): this needs to be a check to see if it's a leaf node
 			// (eg, empty object is a leaf node)
@@ -372,11 +372,11 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 
 	if d.cfg.MoveDeltas {
 		var cleanups []string
-		walkSorted(t2, "", func(p string, n Node) bool {
+		walkSorted(t2, "", func(p string, n node) bool {
 			if n.Type() == ntArray && n.Match() != nil {
 				// matches to same array-type parent require checking for shuffles within the parent
 				// *expensive*
-				deltas := calcReorderDeltas(n.Match().(Compound).Children(), n.(Compound).Children())
+				deltas := calcReorderDeltas(n.Match().(compound).Children(), n.(compound).Children())
 				for _, d := range deltas {
 					cleanups = append(cleanups, d.SrcPath, d.DstPath)
 				}
@@ -406,12 +406,12 @@ func (d *diff) computeDeltas(t1, t2 Node) (dts []*Delta) {
 
 // calcReorderDeltas creates deltas that describes moves within the same parent
 // it starts by calculates the largest (order preserving) common subsequence between
-// two matched parent Compound nodes. Background on LCSS:
+// two matched parent compound nodes. Background on LCSS:
 // https://en.wikipedia.org/wiki/Longest_common_subsequence_problem
 //
 // reorder calculation is shingled into sets of maximum 50 values & processed parallel
 // to keep things fast at the expense of missing some common sequences from longer lists
-func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
+func calcReorderDeltas(a, b []node) (deltas []*Delta) {
 	var wg sync.WaitGroup
 	max := len(a)
 	if len(b) > max {
@@ -422,7 +422,7 @@ func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 	pageSize := 50
 
 	for i := 0; i <= max/pageSize; i++ {
-		var aPage, bPage []Node
+		var aPage, bPage []node
 		start := (i * pageSize)
 		if (start + pageSize) > aRem {
 			aPage = a[start:]
@@ -437,7 +437,7 @@ func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 		}
 
 		wg.Add(1)
-		go func(a, b []Node) {
+		go func(a, b []node) {
 			if ds := movedBNodes(a, b); ds != nil {
 				deltas = append(deltas, ds...)
 			}
@@ -449,8 +449,8 @@ func calcReorderDeltas(a, b []Node) (deltas []*Delta) {
 	return
 }
 
-func movedBNodes(allA, allB []Node) []*Delta {
-	var a, b []Node
+func movedBNodes(allA, allB []node) []*Delta {
+	var a, b []node
 	for _, n := range allA {
 		if n.Match() != nil {
 			a = append(a, n)
@@ -491,7 +491,7 @@ func movedBNodes(allA, allB []Node) []*Delta {
 		return nil
 	}
 
-	var ass, bss []Node
+	var ass, bss []node
 	backtrackB(&ass, c, a, b, m-1, n-1)
 	backtrackA(&bss, c, a, b, m-1, n-1)
 	amv := intersect(a, ass)
@@ -519,7 +519,7 @@ func movedBNodes(allA, allB []Node) []*Delta {
 }
 
 // intersect produces a set intersection, assuming subset is a subset of set and both nodes are ordered
-func intersect(set, subset []Node) (nodes []Node) {
+func intersect(set, subset []node) (nodes []node) {
 	if len(set) == len(subset) {
 		return nil
 	}
@@ -547,8 +547,8 @@ SET:
 }
 
 // backtrack walks the "a" side of a common sequence matrix backward, constructing the
-// secuence of nodes from the "a" (lefthand) Node list
-func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+// secuence of nodes from the "a" (lefthand) node list
+func backtrackA(ss *[]node, c [][]int, a, b []node, i, j int) {
 	if i == 0 || j == 0 {
 		return
 	}
@@ -559,7 +559,7 @@ func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 		// need to check...
 		// if b[j].Weight() > a[i].Weight() {
 		// fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
-		*ss = append([]Node{a[i-1]}, *ss...)
+		*ss = append([]node{a[i-1]}, *ss...)
 		// } else {
 		// ss = append(ss, a[i])
 		// }
@@ -576,8 +576,8 @@ func backtrackA(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 }
 
 // backtrack walks the "b" side of a common sequence matrix backward, constructing the
-// secuence of nodes from the "b" (righthand) Node list
-func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
+// secuence of nodes from the "b" (righthand) node list
+func backtrackB(ss *[]node, c [][]int, a, b []node, i, j int) {
 	if i == 0 || j == 0 {
 		return
 	}
@@ -588,7 +588,7 @@ func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 		// need to check...
 		// if b[j].Weight() > a[i].Weight() {
 		// fmt.Printf("append %p, %s\n", b[j-1], path(b[j-1]))
-		*ss = append([]Node{b[j-1]}, *ss...)
+		*ss = append([]node{b[j-1]}, *ss...)
 		// } else {
 		// ss = append(ss, a[i])
 		// }
@@ -605,7 +605,7 @@ func backtrackB(ss *[]Node, c [][]int, a, b []Node, i, j int) {
 }
 
 // compareScalar compares two scalar values
-func compareScalar(n1, n2 Node, n2Path string) *Delta {
+func compareScalar(n1, n2 node, n2Path string) *Delta {
 	if n1.Type() != n2.Type() {
 		return &Delta{
 			Type:    DTUpdate,
