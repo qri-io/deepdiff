@@ -24,14 +24,17 @@ type DiffOption func(cfg *DiffConfig)
 
 // Diff computes a slice of deltas that define an edit script for turning the
 // value at d1 into d2
-func Diff(d1, d2 interface{}, opts ...DiffOption) []*Delta {
+// currently Diff will never return an error, error returns are reserved for
+// future use. specifically: bailing before delta calculation based on a
+// configurable threshold
+func Diff(d1, d2 interface{}, opts ...DiffOption) ([]*Delta, error) {
 	cfg := &DiffConfig{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
 	difff := &diff{cfg: cfg, d1: d1, d2: d2}
-	return difff.diff()
+	return difff.diff(), nil
 }
 
 // diff is a state machine for calculating an edit script that transitions between

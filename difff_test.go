@@ -31,7 +31,11 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 			t.Fatal(err)
 		}
 
-		diff := Diff(src, dst, opts...)
+		diff, err := Diff(src, dst, opts...)
+		if err != nil {
+			t.Fatalf("%d, %s Diff error: %s", i, c.description, err)
+		}
+
 		if err := CompareDiffs(c.expect, diff); err != nil {
 			t.Errorf("%d. '%s' result mismatch: %s", i, c.description, err)
 		}

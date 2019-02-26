@@ -11,10 +11,33 @@ import (
 // FormatPretty converts a []*Delta into a colored text report, with:
 // red "-" for deletions
 // green "+" for insertions
-// blue "~" for changes
+// blue "~" for changes (an insert & delete at the same path)
 // This is very much a work in progress
 func FormatPretty(changes []*Delta) (string, error) {
-	pretty := map[string]interface{}{}
+	buf := &bytes.Buffer{}
+	pretty, err := pretty(changes)
+	if err != nil {
+		return "", err
+	}
+	writePrettyString(buf, pretty, 0, false)
+	return buf.String(), nil
+}
+
+// FormatPrettyColor is the same as format pretty, but with tty color tags
+// to print colored text to terminals
+func FormatPrettyColor(changes []*Delta) (string, error) {
+	buf := &bytes.Buffer{}
+	pretty, err := pretty(changes)
+	if err != nil {
+		return "", err
+	}
+	writePrettyString(buf, pretty, 0, true)
+	return buf.String(), nil
+}
+
+func pretty(changes []*Delta) (pretty map[string]interface{}, err error) {
+	pretty = map[string]interface{}{}
+	var data []byte
 	for _, diff := range changes {
 
 		path := strings.Split(diff.Path, "/")
@@ -32,58 +55,64 @@ func FormatPretty(changes []*Delta) (string, error) {
 
 		switch diff.Type {
 		case DTInsert:
-			data, err := json.Marshal(diff.Value)
-			if err != nil {
-				return "", err
+			if data, err = json.Marshal(diff.Value); err != nil {
+				return
 			}
 			el["+ "+name] = string(data)
 		case DTDelete:
-			data, err := json.Marshal(diff.Value)
-			if err != nil {
-				return "", err
+			if data, err = json.Marshal(diff.Value); err != nil {
+				return
 			}
 			el["- "+name] = string(data)
 		case DTUpdate:
-			data, err := json.Marshal(diff.Value)
-			if err != nil {
-				return "", err
+			if data, err = json.Marshal(diff.Value); err != nil {
+				return
 			}
 			el["~ "+name] = string(data)
 		}
 	}
-
-	buf := &bytes.Buffer{}
-	writePrettyJSONString(buf, pretty, 0)
-	return buf.String(), nil
+	return
 }
 
-func writePrettyJSONString(buf *bytes.Buffer, pretty map[string]interface{}, indent int) {
-	var keys = make([]string, len(pretty))
+func writePrettyString(buf *bytes.Buffer, pretty map[string]interface{}, indent int, color bool) {
+	var (
+		keys                                              = make([]string, len(pretty))
+		insertColor, deleteColor, updateColor, closeColor string
+	)
+
+	if color {
+		insertColor = "\x1b[32m"
+		deleteColor = "\x1b[31m"
+		updateColor = "\x1b[34m"
+		closeColor = "\x1b[0m"
+	}
+
 	i := 0
 	for key := range pretty {
 		keys[i] = key
 		i++
 	}
+	sort.Strings(keys)
 
-	for _, key := range sort.StringSlice(keys) {
+	for _, key := range keys {
 		switch val := pretty[key].(type) {
 		case map[string]interface{}:
 			buf.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indent), key))
-			writePrettyJSONString(buf, val, indent+1)
+			writePrettyString(buf, val, indent+1, color)
 		case string:
 			switch key[0] {
 			case '+':
-				buf.WriteString(fmt.Sprintf("%s\x1b[32m", strings.Repeat("  ", indent)))
+				buf.WriteString(fmt.Sprintf("%s%s", strings.Repeat("  ", indent), insertColor))
 				buf.WriteString(fmt.Sprintf("%s: %s", key, pretty[key]))
-				buf.WriteString("\x1b[0m\n")
+				buf.WriteString(fmt.Sprintf("%s\n", closeColor))
 			case '-':
-				buf.WriteString(fmt.Sprintf("%s\x1b[31m", strings.Repeat("  ", indent)))
+				buf.WriteString(fmt.Sprintf("%s%s", strings.Repeat("  ", indent), deleteColor))
 				buf.WriteString(fmt.Sprintf("%s: %s", key, pretty[key]))
-				buf.WriteString("\x1b[0m\n")
+				buf.WriteString(fmt.Sprintf("%s\n", closeColor))
 			case '~':
-				buf.WriteString(fmt.Sprintf("%s\x1b[34m", strings.Repeat("  ", indent)))
+				buf.WriteString(fmt.Sprintf("%s%s", strings.Repeat("  ", indent), updateColor))
 				buf.WriteString(fmt.Sprintf("%s: %s", key, pretty[key]))
-				buf.WriteString("\x1b[0m\n")
+				buf.WriteString(fmt.Sprintf("%s\n", closeColor))
 			}
 		}
 	}
