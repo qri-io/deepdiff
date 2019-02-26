@@ -18,13 +18,22 @@ const (
 	DTUpdate = Operation("update")
 )
 
-// Delta represents a change between two documents
+// Delta represents a change between a source & destination document
+// a delta is a single "edit" that describes changes to the destination document
 type Delta struct {
-	Type Operation
+	// the type of change
+	Type Operation `json:"type"`
+	// Path is a string representation of the patch to where the delta operation
+	// begins in the destination documents
+	// path should conform to the IETF JSON-pointer specification, outlined
+	// in RFC 6901: https://tools.ietf.org/html/rfc6901
+	Path string `json:"path"`
+	// The value to change in the destination document
+	Value interface{} `json:"value"`
 
-	SrcPath string
-	DstPath string
-
-	SrcVal interface{}
-	DstVal interface{}
+	// To make delta's revesible, original values are included
+	// the original path this change from
+	SourcePath string `json:"SourcePath,omitempty"`
+	// the original  value this was changed from, will not always be present
+	SourceValue interface{} `json:"originalValue,omitempty"`
 }

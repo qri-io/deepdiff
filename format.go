@@ -17,10 +17,7 @@ func FormatPretty(changes []*Delta) (string, error) {
 	pretty := map[string]interface{}{}
 	for _, diff := range changes {
 
-		path := strings.Split(diff.DstPath, "/")
-		if diff.Type == DTDelete {
-			path = strings.Split(diff.SrcPath, "/")
-		}
+		path := strings.Split(diff.Path, "/")
 		name := ""
 		el := pretty
 		for i, p := range path {
@@ -35,19 +32,19 @@ func FormatPretty(changes []*Delta) (string, error) {
 
 		switch diff.Type {
 		case DTInsert:
-			data, err := json.Marshal(diff.DstVal)
+			data, err := json.Marshal(diff.Value)
 			if err != nil {
 				return "", err
 			}
 			el["+ "+name] = string(data)
 		case DTDelete:
-			data, err := json.Marshal(diff.SrcVal)
+			data, err := json.Marshal(diff.Value)
 			if err != nil {
 				return "", err
 			}
 			el["- "+name] = string(data)
 		case DTUpdate:
-			data, err := json.Marshal(diff.DstVal)
+			data, err := json.Marshal(diff.Value)
 			if err != nil {
 				return "", err
 			}

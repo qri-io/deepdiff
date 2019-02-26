@@ -253,9 +253,9 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 	walkSorted(t1, "", func(p string, n node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
-				Type:    DTDelete,
-				SrcPath: p,
-				SrcVal:  n.Value(),
+				Type:  DTDelete,
+				Path:  p,
+				Value: n.Value(),
 			}
 			dts = append(dts, delta)
 
@@ -290,9 +290,9 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 		match := n.Match()
 		if match == nil {
 			delta := &Delta{
-				Type:    DTInsert,
-				DstPath: p,
-				DstVal:  n.Value(),
+				Type:  DTInsert,
+				Path:  p,
+				Value: n.Value(),
 			}
 			dts = append(dts, delta)
 
@@ -324,11 +324,11 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 			// If we have a match & parents are different, this corresponds to a move
 			if path(match.Parent()) != path(n.Parent()) {
 				delta := &Delta{
-					Type:    DTMove,
-					DstPath: p,
-					SrcPath: path(match),
-					SrcVal:  match.Value(),
-					DstVal:  n.Value(),
+					Type:        DTMove,
+					Path:        p,
+					Value:       n.Value(),
+					SourcePath:  path(match),
+					SourceValue: match.Value(),
 				}
 				dts = append(dts, delta)
 				parentMoves = append(parentMoves, delta)
@@ -378,7 +378,7 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 				// *expensive*
 				deltas := calcReorderDeltas(n.Match().(compound).Children(), n.(compound).Children())
 				for _, d := range deltas {
-					cleanups = append(cleanups, d.SrcPath, d.DstPath)
+					cleanups = append(cleanups, d.SourcePath, d.Path)
 				}
 				if deltas != nil {
 					dts = append(dts, deltas...)
@@ -392,7 +392,7 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 	CLEANUP:
 		for _, d := range dts {
 			for _, pth := range cleanups {
-				if d.Type == DTUpdate && (strings.HasPrefix(d.SrcPath, pth) || strings.HasPrefix(d.DstPath, pth)) {
+				if d.Type == DTUpdate && (strings.HasPrefix(d.SourcePath, pth) || strings.HasPrefix(d.Path, pth)) {
 					continue CLEANUP
 				}
 			}
@@ -506,10 +506,10 @@ func movedBNodes(allA, allB []node) []*Delta {
 		// can be created by matches that move between parents
 		if path(am) != path(bm) {
 			mv := &Delta{
-				Type:    DTMove,
-				SrcPath: path(am),
-				DstPath: path(bm),
-				DstVal:  bm.Value(),
+				Type:       DTMove,
+				Path:       path(bm),
+				Value:      bm.Value(),
+				SourcePath: path(am),
 			}
 			deltas = append(deltas, mv)
 		}
@@ -608,19 +608,18 @@ func backtrackB(ss *[]node, c [][]int, a, b []node, i, j int) {
 func compareScalar(n1, n2 node, n2Path string) *Delta {
 	if n1.Type() != n2.Type() {
 		return &Delta{
-			Type:    DTUpdate,
-			DstPath: n2Path,
-			SrcVal:  n1.Value(),
-			DstVal:  n2.Value(),
+			Type:        DTUpdate,
+			Path:        n2Path,
+			Value:       n2.Value(),
+			SourceValue: n1.Value(),
 		}
 	}
 	if !reflect.DeepEqual(n1.Value(), n2.Value()) {
 		return &Delta{
-			Type:    DTUpdate,
-			SrcPath: path(n1),
-			DstPath: n2Path,
-			SrcVal:  n1.Value(),
-			DstVal:  n2.Value(),
+			Type:        DTUpdate,
+			Path:        n2Path,
+			Value:       n2.Value(),
+			SourceValue: n1.Value(),
 		}
 	}
 	return nil

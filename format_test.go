@@ -4,10 +4,10 @@ import "testing"
 
 func TestFormatPretty(t *testing.T) {
 	patch := []*Delta{
-		{Type: DTInsert, DstPath: "/a", DstVal: 5},
-		{Type: DTUpdate, DstPath: "/a", DstVal: 5},
-		{Type: DTDelete, DstPath: "/a", DstVal: 5},
-		{Type: DTMove, DstPath: "/a", DstVal: 5},
+		{Type: DTInsert, Path: "/a", Value: 5},
+		{Type: DTUpdate, Path: "/a", Value: 5},
+		{Type: DTDelete, Path: "/a", Value: 5},
+		{Type: DTMove, Path: "/a", Value: 5},
 	}
 
 	str, err := FormatPretty(patch)

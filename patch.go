@@ -25,13 +25,13 @@ func Patch(v interface{}, patch []*Delta) (err error) {
 func applyDelta(tree reflect.Value, dlt *Delta) error {
 	switch dlt.Type {
 	case DTUpdate:
-		return updateValue(tree, dlt.DstPath, dlt.DstVal)
+		return updateValue(tree, dlt.Path, dlt.Value)
 	case DTInsert:
-		return insertValue(tree, dlt.DstPath, dlt.DstVal)
+		return insertValue(tree, dlt.Path, dlt.Value)
 	case DTDelete:
-		return deleteValue(tree, dlt.SrcPath)
+		return deleteValue(tree, dlt.Path)
 	case DTMove:
-		return moveValue(tree, dlt.SrcPath, dlt.DstPath, dlt.DstVal)
+		return moveValue(tree, dlt.SourcePath, dlt.Path, dlt.Value)
 	default:
 		return fmt.Errorf("unknown delta type")
 	}
