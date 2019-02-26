@@ -61,6 +61,8 @@ type compound interface {
 	Children() []node
 	// get a child by name
 	Child(key string) node
+	// how many descendants this node has
+	DescendantsCount() int
 }
 
 type object struct {
@@ -71,7 +73,8 @@ type object struct {
 	value  interface{}
 	match  node
 
-	children map[string]node
+	descendants int
+	children    map[string]node
 }
 
 func (o object) Type() nodeType       { return ntObject }
@@ -93,6 +96,7 @@ func (o object) Children() []node {
 	return nodes
 }
 func (o object) Child(name string) node { return o.children[name] }
+func (o object) DescendantsCount() int  { return o.descendants }
 
 type array struct {
 	name   string
@@ -102,8 +106,9 @@ type array struct {
 	value  interface{}
 	match  node
 
-	childNames map[string]int
-	children   []node
+	descendants int
+	childNames  map[string]int
+	children    []node
 }
 
 func (c array) Type() nodeType       { return ntArray }
@@ -119,6 +124,7 @@ func (c array) Children() []node     { return c.children }
 func (c array) Child(name string) node {
 	return c.children[c.childNames[name]]
 }
+func (c array) DescendantsCount() int { return c.descendants }
 
 type scalar struct {
 	t      nodeType
@@ -142,9 +148,11 @@ func (s *scalar) SetMatch(n node)     { s.match = n }
 
 func (d *diff) prepTrees() (t1, t2 node, t1nodes map[string][]node) {
 	var (
-		wg        sync.WaitGroup
-		t1nodesCh = make(chan node)
-		t2nodesCh = make(chan node)
+		wg                sync.WaitGroup
+		t1nodesCh         = make(chan node)
+		t2nodesCh         = make(chan node)
+		t1Nodes, t1Weight int
+		t2Nodes, t2Weight int
 	)
 
 	t1nodes = map[string][]node{}
@@ -154,6 +162,8 @@ func (d *diff) prepTrees() (t1, t2 node, t1nodes map[string][]node) {
 		for n := range nodes {
 			key := hashStr(n.Hash())
 			t1nodes[key] = append(t1nodes[key], n)
+			t1Nodes++
+			t1Weight += n.Weight()
 		}
 		wg.Done()
 	}(t1nodesCh)
@@ -163,8 +173,10 @@ func (d *diff) prepTrees() (t1, t2 node, t1nodes map[string][]node) {
 	}()
 
 	go func(nodes <-chan node) {
-		for range nodes {
+		for n := range nodes {
 			// do nothing
+			t2Nodes++
+			t2Weight += n.Weight()
 		}
 		wg.Done()
 	}(t2nodesCh)
@@ -174,6 +186,13 @@ func (d *diff) prepTrees() (t1, t2 node, t1nodes map[string][]node) {
 	}()
 
 	wg.Wait()
+
+	if d.cfg.Stats != nil {
+		d.cfg.Stats.Left = t1Nodes
+		d.cfg.Stats.LeftWeight = t1Weight
+		d.cfg.Stats.Right = t2Nodes
+		d.cfg.Stats.RightWeight = t2Weight
+	}
 	return
 }
 
@@ -236,6 +255,11 @@ func tree(v interface{}, name string, parent node, nodes chan node) (n node) {
 			hasher.Write(node.Hash())
 			arr.childNames[name] = i
 			arr.children[i] = node
+
+			if cmp, ok := node.(compound); ok {
+				arr.descendants += cmp.DescendantsCount()
+			}
+			arr.descendants++
 		}
 		arr.hash = hasher.Sum(nil)
 
@@ -264,6 +288,11 @@ func tree(v interface{}, name string, parent node, nodes chan node) (n node) {
 			node := tree(x[name], name, obj, nodes)
 			hasher.Write(node.Hash())
 			obj.children[name] = node
+
+			if cmp, ok := node.(compound); ok {
+				obj.descendants += cmp.DescendantsCount()
+			}
+			obj.descendants++
 		}
 		obj.hash = hasher.Sum(nil)
 
@@ -334,4 +363,21 @@ func walkPostfix(tree node, path string, fn func(path string, n node)) {
 		}
 	}
 	fn(path, tree)
+}
+
+func nodeAtPath(tree node, path string) (n node) {
+	names := strings.Split(path, "/")
+	if names[0] == "" {
+		names = names[1:]
+	}
+	n = tree
+	for _, name := range names {
+		if cmp, ok := n.(compound); ok {
+			n = cmp.Child(name)
+			if n == nil {
+				return nil
+			}
+		}
+	}
+	return
 }

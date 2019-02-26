@@ -11,17 +11,6 @@ import (
 	"sync"
 )
 
-// DiffConfig are any possible configuration parameters for calculating diffs
-type DiffConfig struct {
-	// If true Diff will calculate "moves" that describe changing the parent of
-	// a subtree
-	MoveDeltas bool
-}
-
-// DiffOption is a function that adjust a config, zero or more DiffOptions
-// can be passed to the Diff function
-type DiffOption func(cfg *DiffConfig)
-
 // Diff computes a slice of deltas that define an edit script for turning the
 // value at d1 into d2
 // currently Diff will never return an error, error returns are reserved for
@@ -35,6 +24,27 @@ func Diff(d1, d2 interface{}, opts ...DiffOption) ([]*Delta, error) {
 
 	difff := &diff{cfg: cfg, d1: d1, d2: d2}
 	return difff.diff(), nil
+}
+
+// DiffConfig are any possible configuration parameters for calculating diffs
+type DiffConfig struct {
+	// If true Diff will calculate "moves" that describe changing the parent of
+	// a subtree
+	MoveDeltas bool
+	// Provide a non-nil stats pointer & diff will populate it with data from
+	// the diff process
+	Stats *Stats
+}
+
+// DiffOption is a function that adjust a config, zero or more DiffOptions
+// can be passed to the Diff function
+type DiffOption func(cfg *DiffConfig)
+
+// OptionSetStats will set the passed-in stats pointer when Diff is called
+func OptionSetStats(st *Stats) DiffOption {
+	return func(cfg *DiffConfig) {
+		cfg.Stats = st
+	}
 }
 
 // diff is a state machine for calculating an edit script that transitions between
@@ -79,7 +89,7 @@ func (d *diff) diff() []*Delta {
 	// removing the need for this second call (which is effectively doing the same
 	// thing as recursive/aggressive match propagation)
 	d.optimize(d.t1, d.t2)
-	return d.computeDeltas(d.t1, d.t2)
+	return d.calcDeltas(d.t1, d.t2)
 }
 
 // NewHash returns a new hash interface, wrapped in a function for easy
@@ -252,7 +262,7 @@ func propagateMatchToChildren(n node) {
 }
 
 // calculate inserts, changes, deletes, & moves
-func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
+func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 	walkSorted(t1, "", func(p string, n node) bool {
 		if n.Match() == nil {
 			delta := &Delta{
@@ -266,15 +276,17 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 			// accurate. only place where this really applies is parent of delete is
 			// an array (object paths will remain accurate)
 			if parent := n.Parent(); parent != nil {
-				if cmp, ok := parent.(compound); ok && cmp.Type() == ntArray {
+				if arr, ok := parent.(*array); ok {
 					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
 					if err != nil {
 						panic(err)
 					}
 					idx := int(idx64)
-					for i, n := range cmp.Children() {
+					for i, n := range arr.Children() {
+						name := strconv.Itoa(i - 1)
+						arr.childNames[name] = i - 1
 						if i > idx {
-							n.SetName(strconv.Itoa(i - 1))
+							n.SetName(name)
 						}
 					}
 				}
@@ -303,15 +315,17 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 			// accurate. only place where this really applies is parent of insert is
 			// an array (object paths will remain accurate)
 			if parent := n.Parent(); parent != nil && parent.Type() == ntArray {
-				if match := parent.Match(); match != nil {
+				if match, ok := parent.Match().(*array); ok && match != nil {
 					idx64, err := strconv.ParseInt(n.Name(), 0, 0)
 					if err != nil {
 						panic(err)
 					}
 					idx := int(idx64)
-					for i, n := range match.(compound).Children() {
+					for i, n := range match.Children() {
+						name := strconv.Itoa(i + 1)
+						match.childNames[name] = i + 1
 						if i > idx {
-							n.SetName(strconv.Itoa(i + 1))
+							n.SetName(name)
 						}
 					}
 				}
@@ -402,6 +416,36 @@ func (d *diff) computeDeltas(t1, t2 node) (dts []*Delta) {
 			cleaned = append(cleaned, d)
 		}
 		return cleaned
+	}
+
+	if d.cfg.Stats != nil {
+		for _, delta := range dts {
+			switch delta.Type {
+			case DTInsert:
+				if n := nodeAtPath(t2, delta.Path); n != nil {
+					if cmp, ok := n.(compound); ok {
+						d.cfg.Stats.Inserts += cmp.DescendantsCount()
+					}
+				}
+				d.cfg.Stats.Inserts++
+			case DTUpdate:
+				d.cfg.Stats.Updates++
+			case DTDelete:
+				if n := nodeAtPath(t2, delta.Path); n != nil {
+					if cmp, ok := n.(compound); ok {
+						d.cfg.Stats.Deletes += cmp.DescendantsCount()
+					}
+				}
+				d.cfg.Stats.Deletes++
+			case DTMove:
+				if n := nodeAtPath(t2, delta.Path); n != nil {
+					if cmp, ok := n.(compound); ok {
+						d.cfg.Stats.Moves += cmp.DescendantsCount()
+					}
+					d.cfg.Stats.Moves++
+				}
+			}
+		}
 	}
 
 	return dts
@@ -607,7 +651,7 @@ func backtrackB(ss *[]node, c [][]int, a, b []node, i, j int) {
 	return
 }
 
-// compareScalar compares two scalar values
+// compareScalar compares two scalar values, possibly creating an Update delta
 func compareScalar(n1, n2 node, n2Path string) *Delta {
 	if n1.Type() != n2.Type() {
 		return &Delta{
