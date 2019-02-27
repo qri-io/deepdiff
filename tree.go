@@ -197,6 +197,7 @@ func (d *diff) prepTrees() (t1, t2 node, t1nodes map[string][]node) {
 }
 
 func tree(v interface{}, name string, parent node, nodes chan node) (n node) {
+	v = preprocessType(v)
 	switch x := v.(type) {
 	case nil:
 		n = &scalar{
@@ -307,6 +308,33 @@ func tree(v interface{}, name string, parent node, nodes chan node) (n node) {
 
 	nodes <- n
 	return
+}
+
+func preprocessType(v interface{}) interface{} {
+	switch x := v.(type) {
+	case map[interface{}]interface{}:
+		conv := map[string]interface{}{}
+		for key, val := range x {
+			conv[fmt.Sprintf("%v", key)] = val
+		}
+		return conv
+	case []string:
+		conv := make([]interface{}, len(x))
+		for i, s := range x {
+			conv[i] = s
+		}
+		return conv
+	case uint8:
+		return int(x)
+	case uint16:
+		return int(x)
+	case uint32:
+		return int(x)
+	case float32:
+		return float64(x)
+	default:
+		return v
+	}
 }
 
 // path computes the string path from
