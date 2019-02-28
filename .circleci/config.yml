@@ -1,7 +1,7 @@
 version: '2'
 jobs:
   build:
-    working_directory: /go/src/github.com/qri-io/difff
+    working_directory: /go/src/github.com/qri-io/deepdiff
     docker:
       - image: circleci/golang:1.11.5
     environment:

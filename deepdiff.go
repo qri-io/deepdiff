@@ -1,4 +1,4 @@
-package difff
+package deepdiff
 
 import (
 	"bytes"
@@ -22,8 +22,8 @@ func Diff(d1, d2 interface{}, opts ...DiffOption) ([]*Delta, error) {
 		opt(cfg)
 	}
 
-	difff := &diff{cfg: cfg, d1: d1, d2: d2}
-	return difff.diff(), nil
+	deepdiff := &diff{cfg: cfg, d1: d1, d2: d2}
+	return deepdiff.diff(), nil
 }
 
 // DiffConfig are any possible configuration parameters for calculating diffs

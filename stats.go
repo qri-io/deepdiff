@@ -1,4 +1,4 @@
-package difff
+package deepdiff
 
 // Stats holds statistical metadata about a diff
 type Stats struct {

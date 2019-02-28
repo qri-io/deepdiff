@@ -1,4 +1,4 @@
-package difff
+package deepdiff
 
 // Operation defines the operation of a Delta item
 type Operation string

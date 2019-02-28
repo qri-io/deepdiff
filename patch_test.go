@@ -1,4 +1,4 @@
-package difff
+package deepdiff
 
 import (
 	"encoding/json"

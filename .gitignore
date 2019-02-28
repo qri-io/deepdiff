@@ -1,4 +1,4 @@
 coverage.txt
 testdata/graph.dot
-difff.test
-difff
+deepdiff.test
+deepdiff
