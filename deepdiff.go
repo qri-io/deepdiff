@@ -89,6 +89,7 @@ func (d *diff) diff() []*Delta {
 	// removing the need for this second call (which is effectively doing the same
 	// thing as recursive/aggressive match propagation)
 	d.optimize(d.t1, d.t2)
+	d.optimize(d.t1, d.t2)
 	return d.calcDeltas(d.t1, d.t2)
 }
 
