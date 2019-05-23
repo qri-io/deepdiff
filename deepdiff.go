@@ -2,6 +2,7 @@ package deepdiff
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"hash"
 	"hash/fnv"
@@ -16,14 +17,18 @@ import (
 // currently Diff will never return an error, error returns are reserved for
 // future use. specifically: bailing before delta calculation based on a
 // configurable threshold
-func Diff(d1, d2 interface{}, opts ...DiffOption) ([]*Delta, error) {
+func Diff(ctx context.Context, d1, d2 interface{}, opts ...DiffOption) ([]*Delta, error) {
 	cfg := &DiffConfig{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	deepdiff := &diff{cfg: cfg, d1: d1, d2: d2}
-	return deepdiff.diff(), nil
+	// context passed to diff must always cancel
+	ctx, done := context.WithCancel(ctx)
+	defer done()
+
+	diffState := &diff{cfg: cfg, d1: d1, d2: d2}
+	return diffState.diff(ctx), nil
 }
 
 // DiffConfig are any possible configuration parameters for calculating diffs
@@ -80,9 +85,11 @@ type diff struct {
 //    correspond to inserted nodes.
 // 6. consider each matching node and decide if the node is at its right
 //    place, or whether it has been moved.
-func (d *diff) diff() []*Delta {
-	d.t1, d.t2, d.t1Nodes = d.prepTrees()
-	d.queueMatch(d.t1Nodes, d.t2)
+//
+// the context passed to diff must always cancel
+func (d *diff) diff(ctx context.Context) []*Delta {
+	d.t1, d.t2, d.t1Nodes = d.prepTrees(ctx)
+	d.queueMatch(ctx, d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
 	// TODO (b5): a second optimize pass seems to help greatly on larger diffs, which
 	// to me seems we should propagating matches more aggressively in the optimize pass,
@@ -108,7 +115,7 @@ func hashStr(sum []byte) string {
 	return hex.EncodeToString(sum)
 }
 
-func (d *diff) queueMatch(t1Nodes map[string][]node, t2 node) {
+func (d *diff) queueMatch(ctx context.Context, t1Nodes map[string][]node, t2 node) {
 	queue := make(chan node)
 	done := make(chan struct{})
 	considering := 1
@@ -116,35 +123,46 @@ func (d *diff) queueMatch(t1Nodes map[string][]node, t2 node) {
 
 	go func() {
 		var candidates []node
-		for n2 := range queue {
-			key := hashStr(n2.Hash())
-
-			candidates = t1Nodes[key]
-
-			switch len(candidates) {
-			case 0:
-				// no candidates. check if node has children. If so, add them.
-				if n2c, ok := n2.(compound); ok {
-					for _, ch := range n2c.Children() {
-						considering++
-						go func(n node) {
-							queue <- n
-						}(ch)
-					}
-				}
-			case 1:
-				// connect an exact match. yay!
-				n1 := candidates[0]
-				matchNodes(n1, n2)
-			default:
-				// choose a best candidate. let the sketchiness begin.
-				bestCandidate(candidates, n2, t2Weight)
-			}
-
-			considering--
-			if considering == 0 {
+		for {
+			select {
+			case <-ctx.Done():
 				done <- struct{}{}
-				break
+				return
+			case n2, ok := <-queue:
+				if !ok {
+					done <- struct{}{}
+					return
+				}
+
+				key := hashStr(n2.Hash())
+
+				candidates = t1Nodes[key]
+
+				switch len(candidates) {
+				case 0:
+					// no candidates. check if node has children. If so, add them.
+					if n2c, ok := n2.(compound); ok {
+						for _, ch := range n2c.Children() {
+							considering++
+							go func(n node) {
+								queue <- n
+							}(ch)
+						}
+					}
+				case 1:
+					// connect an exact match. yay!
+					n1 := candidates[0]
+					matchNodes(n1, n2)
+				default:
+					// choose a best candidate. let the sketchiness begin.
+					bestCandidate(candidates, n2, t2Weight)
+				}
+
+				considering--
+				if considering == 0 {
+					done <- struct{}{}
+					break
+				}
 			}
 		}
 	}()

@@ -1,11 +1,12 @@
 package deepdiff
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
 
-func ExampleDiffJSON() {
+func ExampleDiff() {
 	// start with two slightly different json documents
 	aJSON := []byte(`{
 		"a": 100,
@@ -49,7 +50,7 @@ func ExampleDiffJSON() {
 	// Diff will use default configuration to produce a slice of Deltas
 	// that describe the structured changes. by default Diff will not calculate
 	// moves, only inserts, deletes, and updates
-	diffs, err := Diff(a, b)
+	diffs, err := Diff(context.Background(), a, b)
 	if err != nil {
 		panic(err)
 	}

@@ -2,6 +2,7 @@ package deepdiff
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -31,7 +32,7 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 			t.Fatal(err)
 		}
 
-		diff, err := Diff(src, dst, opts...)
+		diff, err := Diff(context.Background(), src, dst, opts...)
 		if err != nil {
 			t.Fatalf("%d, %s Diff error: %s", i, c.description, err)
 		}
@@ -265,9 +266,12 @@ func TestDiffDotGraph(t *testing.T) {
 		panic(err)
 	}
 
+	ctx, done := context.WithCancel(context.Background())
+	defer done()
+
 	d := &diff{cfg: &DiffConfig{}, d1: a, d2: b}
-	d.t1, d.t2, d.t1Nodes = d.prepTrees()
-	d.queueMatch(d.t1Nodes, d.t2)
+	d.t1, d.t2, d.t1Nodes = d.prepTrees(context.Background())
+	d.queueMatch(ctx, d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
 
 	buf := dotGraphTree(d)
@@ -355,7 +359,7 @@ func BenchmarkDiff1(b *testing.B) {
 	}
 
 	for n := 0; n < b.N; n++ {
-		Diff(src, dst)
+		Diff(context.Background(), src, dst)
 	}
 }
 
@@ -373,7 +377,7 @@ func BenchmarkDiffDatasets(b *testing.B) {
 		b.Fatal(err)
 	}
 	for i := 0; i < b.N; i++ {
-		Diff(t1, t2)
+		Diff(context.Background(), t1, t2)
 	}
 }
 
@@ -395,6 +399,6 @@ func BenchmarkDiff5MB(b *testing.B) {
 		b.Fatal(err)
 	}
 	for i := 0; i < b.N; i++ {
-		Diff(t1, t2)
+		Diff(context.Background(), t1, t2)
 	}
 }

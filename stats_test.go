@@ -1,6 +1,7 @@
 package deepdiff
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -29,7 +30,7 @@ func TestCalcStats(t *testing.T) {
 		Moves:       0,
 	}
 	stats := &Stats{}
-	Diff(a, b, OptionSetStats(stats))
+	Diff(context.Background(), a, b, OptionSetStats(stats))
 
 	if expect.NodeChange() != stats.NodeChange() {
 		t.Errorf("wrong node change. want: %d. got: %d", expect.NodeChange(), stats.NodeChange())

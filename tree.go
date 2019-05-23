@@ -1,6 +1,7 @@
 package deepdiff
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strconv"
@@ -146,7 +147,7 @@ func (s scalar) Value() interface{}   { return s.value }
 func (s scalar) Match() node          { return s.match }
 func (s *scalar) SetMatch(n node)     { s.match = n }
 
-func (d *diff) prepTrees() (t1, t2 node, t1nodes map[string][]node) {
+func (d *diff) prepTrees(ctx context.Context) (t1, t2 node, t1nodes map[string][]node) {
 	var (
 		wg                sync.WaitGroup
 		t1nodesCh         = make(chan node)
