@@ -208,6 +208,16 @@ func tree(v interface{}, name string, parent node, nodes chan node) (n node) {
 			value:  v,
 			weight: 1,
 		}
+	case int64:
+		istr := strconv.FormatInt(x, 10)
+		n = &scalar{
+			t:      ntInt,
+			name:   name,
+			hash:   NewHash().Sum([]byte(istr)),
+			parent: parent,
+			value:  v,
+			weight: len(istr),
+		}
 	case float64:
 		fstr := strconv.FormatFloat(x, 'f', -1, 64)
 		n = &scalar{

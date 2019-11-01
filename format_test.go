@@ -41,3 +41,11 @@ func TestFormatStatsPretty(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatStatsNull(t *testing.T) {
+	got := FormatPrettyStats(nil)
+	expect := `<nil>`
+	if got != expect {
+		t.Errorf("want:\n%s\ngot:\n%s", expect, got)
+	}
+}
