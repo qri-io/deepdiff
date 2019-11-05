@@ -327,6 +327,42 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 	return buf
 }
 
+func TestDiffIntData(t *testing.T) {
+	leftData := []interface{}{
+		[]interface{}{ int64(1), int64(2), int64(3)},
+		[]interface{}{ int64(4), int64(5), int64(6)},
+		[]interface{}{ int64(7), int64(8), int64(9)},
+	}
+	rightData := []interface{}{
+		[]interface{}{ int64(1), int64(2), int64(3)},
+		[]interface{}{ int64(4), int64(0), int64(6)},
+		[]interface{}{int64(10), int64(8), int64(9)},
+	}
+
+	diff, err := Diff(leftData, rightData)
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+
+	expect := []*Delta{
+		&Delta{
+			Type: DTUpdate,
+			Path: "/1/1",
+			Value: int64(0),
+			SourceValue: int64(5),
+		},
+		&Delta{
+			Type: DTUpdate,
+			Path: "/2/0",
+			Value: int64(10),
+			SourceValue: int64(7),
+		},
+	}
+	if err := CompareDiffs(expect, diff); err != nil {
+		t.Errorf("Compare result mismatch: %s", err)
+	}
+}
+
 func BenchmarkDiff1(b *testing.B) {
 	srcData := `{
 		"foo" : {

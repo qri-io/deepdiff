@@ -133,6 +133,10 @@ func formatStats(ds *Stats, color bool) string {
 		neutralColor, insertColor, deleteColor, updateColor, closeColor string
 	)
 
+	if ds == nil {
+		return "<nil>"
+	}
+
 	if color {
 		neutralColor = "\x1b[37m"
 		insertColor = "\x1b[32m"
