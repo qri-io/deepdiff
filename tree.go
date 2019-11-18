@@ -122,7 +122,10 @@ func (c array) Match() node          { return c.match }
 func (c *array) SetMatch(n node)     { c.match = n }
 func (c array) Children() []node     { return c.children }
 func (c array) Child(name string) node {
-	return c.children[c.childNames[name]]
+	if c.childNames[name] < len(c.children) {
+		return c.children[c.childNames[name]]
+	}
+	return nil
 }
 func (c array) DescendantsCount() int { return c.descendants }
 

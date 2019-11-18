@@ -363,6 +363,43 @@ func TestDiffIntData(t *testing.T) {
 	}
 }
 
+func TestDiffStats(t *testing.T) {
+	leftData := map[string]interface{}{
+		"a": "apple",
+		"b": []interface{}{
+			[]interface{}{"one", "two", "three"},
+			[]interface{}{"four", "five", "six"},
+		},
+	}
+	rightData := map[string]interface{}{
+		"a": "apple",
+		"b": []interface{}{
+		},
+	}
+
+	stat := Stats{}
+	diff, err := Diff(leftData, rightData, OptionSetStats(&stat))
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+
+	expect := []*Delta{
+		&Delta{
+			Type: DTDelete,
+			Path: "/b/0",
+			Value: []interface{}{"one", "two", "three"},
+		},
+		&Delta{
+			Type: DTDelete,
+			Path: "/b/0",
+			Value: []interface{}{"four", "five", "six"},
+		},
+	}
+	if err := CompareDiffs(expect, diff); err != nil {
+		t.Errorf("Compare result mismatch: %s", err)
+	}
+}
+
 func BenchmarkDiff1(b *testing.B) {
 	srcData := `{
 		"foo" : {
