@@ -148,6 +148,15 @@ func TestBasicDiffing(t *testing.T) {
 				{Type: DTDelete, Path: "/b", Value: []interface{}{float64(2)}},
 			},
 		},
+		{
+			"key change case",
+			`{"a":[1],"b":[2],"c":[3]}`,
+			`{"A":[1],"b":[2],"c":[3]}`,
+			[]*Delta{
+				{Type: DTDelete, Path: "/a", Value: []interface{}{float64(1)}},
+				{Type: DTInsert, Path: "/A", Value: []interface{}{float64(1)}},
+			},
+		},
 	}
 
 	RunTestCases(t, cases)
@@ -329,13 +338,13 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 
 func TestDiffIntData(t *testing.T) {
 	leftData := []interface{}{
-		[]interface{}{ int64(1), int64(2), int64(3)},
-		[]interface{}{ int64(4), int64(5), int64(6)},
-		[]interface{}{ int64(7), int64(8), int64(9)},
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+		[]interface{}{int64(7), int64(8), int64(9)},
 	}
 	rightData := []interface{}{
-		[]interface{}{ int64(1), int64(2), int64(3)},
-		[]interface{}{ int64(4), int64(0), int64(6)},
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(4), int64(0), int64(6)},
 		[]interface{}{int64(10), int64(8), int64(9)},
 	}
 
@@ -346,15 +355,15 @@ func TestDiffIntData(t *testing.T) {
 
 	expect := []*Delta{
 		&Delta{
-			Type: DTUpdate,
-			Path: "/1/1",
-			Value: int64(0),
+			Type:        DTUpdate,
+			Path:        "/1/1",
+			Value:       int64(0),
 			SourceValue: int64(5),
 		},
 		&Delta{
-			Type: DTUpdate,
-			Path: "/2/0",
-			Value: int64(10),
+			Type:        DTUpdate,
+			Path:        "/2/0",
+			Value:       int64(10),
 			SourceValue: int64(7),
 		},
 	}
@@ -373,8 +382,7 @@ func TestDiffStats(t *testing.T) {
 	}
 	rightData := map[string]interface{}{
 		"a": "apple",
-		"b": []interface{}{
-		},
+		"b": []interface{}{},
 	}
 
 	stat := Stats{}
@@ -385,13 +393,13 @@ func TestDiffStats(t *testing.T) {
 
 	expect := []*Delta{
 		&Delta{
-			Type: DTDelete,
-			Path: "/b/0",
+			Type:  DTDelete,
+			Path:  "/b/0",
 			Value: []interface{}{"one", "two", "three"},
 		},
 		&Delta{
-			Type: DTDelete,
-			Path: "/b/0",
+			Type:  DTDelete,
+			Path:  "/b/0",
 			Value: []interface{}{"four", "five", "six"},
 		},
 	}
