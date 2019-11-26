@@ -2,8 +2,10 @@ package deepdiff
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/google/go-cmp/cmp"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -21,6 +23,8 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 	var (
 		src interface{}
 		dst interface{}
+		dd  = NewDeepDiff(opts...)
+		ctx = context.Background()
 	)
 
 	for i, c := range cases {
@@ -31,7 +35,7 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 			t.Fatal(err)
 		}
 
-		diff, err := Diff(src, dst, opts...)
+		diff, err := dd.Diff(ctx, src, dst)
 		if err != nil {
 			t.Fatalf("%d, %s Diff error: %s", i, c.description, err)
 		}
@@ -181,7 +185,7 @@ func TestMoveDiffs(t *testing.T) {
 			},
 		},
 	}
-	RunTestCases(t, cases, func(o *DiffConfig) {
+	RunTestCases(t, cases, func(o *Config) {
 		o.MoveDeltas = true
 	})
 }
@@ -274,8 +278,8 @@ func TestDiffDotGraph(t *testing.T) {
 		panic(err)
 	}
 
-	d := &diff{cfg: &DiffConfig{}, d1: a, d2: b}
-	d.t1, d.t2, d.t1Nodes = d.prepTrees()
+	d := &diff{cfg: &Config{}, d1: a, d2: b}
+	d.t1, d.t2, d.t1Nodes = d.prepTrees(context.Background())
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
 
@@ -348,7 +352,7 @@ func TestDiffIntData(t *testing.T) {
 		[]interface{}{int64(10), int64(8), int64(9)},
 	}
 
-	diff, err := Diff(leftData, rightData)
+	diff, err := NewDeepDiff().Diff(context.Background(), leftData, rightData)
 	if err != nil {
 		t.Fatalf("Diff error: %s", err)
 	}
@@ -385,8 +389,7 @@ func TestDiffStats(t *testing.T) {
 		"b": []interface{}{},
 	}
 
-	stat := Stats{}
-	diff, err := Diff(leftData, rightData, OptionSetStats(&stat))
+	diff, stat, err := NewDeepDiff().StatDiff(context.Background(), leftData, rightData)
 	if err != nil {
 		t.Fatalf("Diff error: %s", err)
 	}
@@ -405,6 +408,17 @@ func TestDiffStats(t *testing.T) {
 	}
 	if err := CompareDiffs(expect, diff); err != nil {
 		t.Errorf("Compare result mismatch: %s", err)
+	}
+
+	expectStat := &Stats{
+		Left:        11,
+		Right:       3,
+		LeftWeight:  107,
+		RightWeight: 13,
+		Deletes:     2,
+	}
+	if diff := cmp.Diff(expectStat, stat); diff != "" {
+		t.Errorf("result mismatch. (-want +got):\n%s", diff)
 	}
 }
 
@@ -427,6 +441,8 @@ func BenchmarkDiff1(b *testing.B) {
 
 	var (
 		src, dst interface{}
+		ctx      = context.Background()
+		dd       = NewDeepDiff()
 	)
 	if err := json.Unmarshal([]byte(srcData), &src); err != nil {
 		b.Fatal(err)
@@ -436,16 +452,18 @@ func BenchmarkDiff1(b *testing.B) {
 	}
 
 	for n := 0; n < b.N; n++ {
-		Diff(src, dst)
+		dd.Diff(ctx, src, dst)
 	}
 }
 
 func BenchmarkDiffDatasets(b *testing.B) {
 	var (
+		diff  = NewDeepDiff()
 		data1 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmbwJNx88xNknXYewLCVBVJqbZ5oaiffr4WYDoCJAuCZ93","qri":"cm:0","signature":"TUREFCfoKEf5J189c0jdKfleRYsGZm8Q6sm6g6lJctXGDDM8BGdpSVjMltGTmmrtN6qtQJKRail5ceG325Rb8hLYoMe4926gXZNWBlMfD0yBHSjo81LsE25UqVeloU2W19Z1MNOrLTDPDRBoM0g3vyJLykGQ0UPRqpUvXNod0E5ONZOKGrQpByp113h12yiAjsiCBR6sAfIScNpcyjzkiDhBCCbMy9cGfMVK8q7wNCmcC41zguGhvv1biDoE+MEVDc1QPN1dYeEaDsvaRu5jWSv44zhVdC3lZtlT8R9qArk8OQVW798ctQ6NJ5kCiZ3C6Z19VPrptr85oknoNNaYxA==","timestamp":"2019-02-04T14:26:43.158109Z","title":"created dataset"},"name":"test_1","path":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj/dataset.json","peername":"b5","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
 		data2 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmVZrXZ2d6DF11BL7QLJ8AYFYaNiLgAWVEshZ3HB5ogZJS","qri":"cm:0","signature":"CppvSyFkaLNIY3lIOGxq7ybA18ZzJbgrF7XrIgrxi7pwKB3RGjriaCqaqTGNMTkdJCATN/qs/Yq4IIbpHlapIiwfzVHFUO8m0a2+wW0DHI+y1HYsRvhg3+LFIGHtm4M+hqcDZg9EbNk8weZI+Q+FPKk6VjPKpGtO+JHV+nEFovFPjS4XMMoyuJ96KiAEeZISuF4dN2CDSV+WC93sMhdPPAQJJZjZX+3cc/fOaghOkuhedXaA0poTVJQ05aAp94DyljEnysuS7I+jfNrsE/6XhtazZnOSYX7e0r1PJwD7OdoZYRH73HnDk+Q9wg6RrpU7EehF39o4UywyNGAI5yJkxg==","timestamp":"2019-02-11T17:50:20.501283Z","title":"forced update"},"name":"test_1","path":"/ipfs/QmaAuKZezio5knAFXU4krPcZfBWHnHDWWKEX32Ne9v6niQ/dataset.json","peername":"b5","previousPath":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
 		t1    interface{}
 		t2    interface{}
+		ctx   = context.Background()
 	)
 	if err := json.Unmarshal(data1, &t1); err != nil {
 		b.Fatal(err)
@@ -454,11 +472,14 @@ func BenchmarkDiffDatasets(b *testing.B) {
 		b.Fatal(err)
 	}
 	for i := 0; i < b.N; i++ {
-		Diff(t1, t2)
+		diff.Diff(ctx, t1, t2)
 	}
 }
 
 func BenchmarkDiff5MB(b *testing.B) {
+	diff := NewDeepDiff()
+	ctx := context.Background()
+
 	f1, err := os.Open("testdata/airport_codes.json")
 	if err != nil {
 		b.Fatal(err)
@@ -476,6 +497,6 @@ func BenchmarkDiff5MB(b *testing.B) {
 		b.Fatal(err)
 	}
 	for i := 0; i < b.N; i++ {
-		Diff(t1, t2)
+		diff.Diff(ctx, t1, t2)
 	}
 }

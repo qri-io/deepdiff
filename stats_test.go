@@ -1,9 +1,11 @@
 package deepdiff
 
 import (
+	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestCalcStats(t *testing.T) {
@@ -28,21 +30,13 @@ func TestCalcStats(t *testing.T) {
 		Deletes:     1,
 		Moves:       0,
 	}
-	stats := &Stats{}
-	Diff(a, b, OptionSetStats(stats))
 
-	if expect.NodeChange() != stats.NodeChange() {
-		t.Errorf("wrong node change. want: %d. got: %d", expect.NodeChange(), stats.NodeChange())
+	got, err := NewDeepDiff().Stat(context.Background(), a, b)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if expect.PctWeightChange() != stats.PctWeightChange() {
-		t.Errorf("wrong percentage of node change. want: %f. got: %f", expect.PctWeightChange(), stats.PctWeightChange())
+	if diff := cmp.Diff(expect, got); diff != "" {
+		t.Errorf("result mismatch. (-want +got):\n%s", diff)
 	}
-
-	if !reflect.DeepEqual(expect, stats) {
-		t.Errorf("response mismatch")
-		t.Logf("want: %v", expect)
-		t.Logf("got: %v", stats)
-	}
-
 }

@@ -2,6 +2,7 @@ package deepdiff
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"hash"
 	"hash/fnv"
@@ -11,46 +12,70 @@ import (
 	"sync"
 )
 
-// Diff computes a slice of deltas that define an edit script for turning the
-// value at d1 into d2
-// currently Diff will never return an error, error returns are reserved for
-// future use. specifically: bailing before delta calculation based on a
-// configurable threshold
-func Diff(d1, d2 interface{}, opts ...DiffOption) ([]*Delta, error) {
-	cfg := &DiffConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	deepdiff := &diff{cfg: cfg, d1: d1, d2: d2}
-	return deepdiff.diff(), nil
-}
-
-// DiffConfig are any possible configuration parameters for calculating diffs
-type DiffConfig struct {
+// Config are any possible configuration parameters for calculating diffs
+type Config struct {
 	// If true Diff will calculate "moves" that describe changing the parent of
 	// a subtree
 	MoveDeltas bool
-	// Provide a non-nil stats pointer & diff will populate it with data from
-	// the diff process
-	Stats *Stats
 }
 
 // DiffOption is a function that adjust a config, zero or more DiffOptions
 // can be passed to the Diff function
-type DiffOption func(cfg *DiffConfig)
+type DiffOption func(cfg *Config)
 
-// OptionSetStats will set the passed-in stats pointer when Diff is called
-func OptionSetStats(st *Stats) DiffOption {
-	return func(cfg *DiffConfig) {
-		cfg.Stats = st
+// DeepDiff is a configuration for performing diffs
+type DeepDiff struct {
+	changes    bool
+	moveDeltas bool
+}
+
+// NewDeepDiff creates a deepdiff struct
+func NewDeepDiff(opts ...DiffOption) *DeepDiff {
+	cfg := &Config{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return &DeepDiff{
+		changes:    false,
+		moveDeltas: cfg.MoveDeltas,
 	}
 }
 
-// diff is a state machine for calculating an edit script that transitions between
-// two state trees
+// Diff computes a slice of deltas that define an edit script for turning a
+// into b.
+// currently Diff will never return an error, error returns are reserved for
+// future use. specifically: bailing before delta calculation based on a
+// configurable threshold
+func (dd *DeepDiff) Diff(ctx context.Context, a, b interface{}) ([]*Delta, error) {
+	deepdiff := &diff{cfg: dd.config(), d1: a, d2: b}
+	return deepdiff.diff(ctx), nil
+}
+
+// StatDiff calculates a diff script and diff stats
+func (dd *DeepDiff) StatDiff(ctx context.Context, a, b interface{}) ([]*Delta, *Stats, error) {
+	deepdiff := &diff{cfg: dd.config(), d1: a, d2: b, stats: &Stats{}}
+	return deepdiff.diff(ctx), deepdiff.stats, nil
+}
+
+// Stat calculates the DiffStata between two documents
+func (dd *DeepDiff) Stat(ctx context.Context, a, b interface{}) (*Stats, error) {
+	deepdiff := &diff{cfg: dd.config(), d1: a, d2: b, stats: &Stats{}}
+	deepdiff.diff(ctx)
+	return deepdiff.stats, nil
+}
+
+func (dd *DeepDiff) config() *Config {
+	return &Config{
+		MoveDeltas: dd.moveDeltas,
+	}
+}
+
+// diff is a state machine for calculating an edit script that transitions
+// between two state trees
 type diff struct {
-	cfg     *DiffConfig
+	cfg     *Config
+	stats   *Stats
 	d1, d2  interface{}
 	t1, t2  node
 	t1Nodes map[string][]node
@@ -80,8 +105,8 @@ type diff struct {
 //    correspond to inserted nodes.
 // 6. consider each matching node and decide if the node is at its right
 //    place, or whether it has been moved.
-func (d *diff) diff() []*Delta {
-	d.t1, d.t2, d.t1Nodes = d.prepTrees()
+func (d *diff) diff(ctx context.Context) []*Delta {
+	d.t1, d.t2, d.t1Nodes = d.prepTrees(ctx)
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
 	// TODO (b5): a second optimize pass seems to help greatly on larger diffs, which
@@ -419,31 +444,31 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 		return cleaned
 	}
 
-	if d.cfg.Stats != nil {
+	if d.stats != nil {
 		for _, delta := range dts {
 			switch delta.Type {
 			case DTInsert:
 				if n := nodeAtPath(t2, delta.Path); n != nil {
 					if cmp, ok := n.(compound); ok {
-						d.cfg.Stats.Inserts += cmp.DescendantsCount()
+						d.stats.Inserts += cmp.DescendantsCount()
 					}
 				}
-				d.cfg.Stats.Inserts++
+				d.stats.Inserts++
 			case DTUpdate:
-				d.cfg.Stats.Updates++
+				d.stats.Updates++
 			case DTDelete:
 				if n := nodeAtPath(t2, delta.Path); n != nil {
 					if cmp, ok := n.(compound); ok {
-						d.cfg.Stats.Deletes += cmp.DescendantsCount()
+						d.stats.Deletes += cmp.DescendantsCount()
 					}
 				}
-				d.cfg.Stats.Deletes++
+				d.stats.Deletes++
 			case DTMove:
 				if n := nodeAtPath(t2, delta.Path); n != nil {
 					if cmp, ok := n.(compound); ok {
-						d.cfg.Stats.Moves += cmp.DescendantsCount()
+						d.stats.Moves += cmp.DescendantsCount()
 					}
-					d.cfg.Stats.Moves++
+					d.stats.Moves++
 				}
 			}
 		}
