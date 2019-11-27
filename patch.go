@@ -38,7 +38,7 @@ func applyDelta(tree reflect.Value, dlt *Delta) error {
 }
 
 func updateValue(tree reflect.Value, path string, set interface{}) error {
-	parent, name, err := pathToParent(tree, path)
+	parent, name, err := targetValue(tree, path)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func updateValue(tree reflect.Value, path string, set interface{}) error {
 }
 
 func deleteValue(tree reflect.Value, path string) error {
-	parent, name, err := pathToParent(tree, path)
+	parent, name, err := targetValue(tree, path)
 	if err != nil {
 		return err
 	}
@@ -75,6 +75,8 @@ func deleteValue(tree reflect.Value, path string) error {
 		val = val.Elem()
 	}
 
+	// fmt.Printf("delete value\ntree: %#v\npath: %s\npare: %#v\nname: %s\nval:  %#v\n\n", tree, path, parent, name, val)
+
 	switch val.Kind() {
 	case reflect.Map:
 		val.SetMapIndex(reflect.ValueOf(name), reflect.Value{})
@@ -83,6 +85,7 @@ func deleteValue(tree reflect.Value, path string) error {
 		if err != nil {
 			return err
 		}
+
 		l := val.Len()
 		if i >= l {
 			return fmt.Errorf("array index %d exceeds %d at path %s", i, l, path)
@@ -99,7 +102,7 @@ func deleteValue(tree reflect.Value, path string) error {
 }
 
 func insertValue(tree reflect.Value, path string, insert interface{}) error {
-	parent, name, err := pathToParent(tree, path)
+	parent, name, err := targetValue(tree, path)
 	if err != nil {
 		return err
 	}
@@ -108,6 +111,8 @@ func insertValue(tree reflect.Value, path string, insert interface{}) error {
 	if val.Kind() == reflect.Interface {
 		val = val.Elem()
 	}
+
+	// fmt.Printf("insert value: %#v\ntree: %#v\npath: %s\npare: %#v\nname: %s\nval:  %#v\n\n", insert, tree, path, parent, name, val)
 
 	switch val.Kind() {
 	case reflect.Map:
@@ -150,7 +155,7 @@ func moveValue(tree reflect.Value, from, to string, val interface{}) error {
 	return insertValue(tree, to, val)
 }
 
-func pathToParent(tree reflect.Value, path string) (reflect.Value, string, error) {
+func targetValue(tree reflect.Value, path string) (reflect.Value, string, error) {
 	components := strings.Split(path, "/")
 	if len(components) < 1 {
 		return tree, "", fmt.Errorf("invalid path: %s", path)
@@ -162,28 +167,25 @@ func pathToParent(tree reflect.Value, path string) (reflect.Value, string, error
 	elem := tree
 	for len(components) > 1 {
 		sel := components[0]
-		derefed := elem
+		// derefed := elem
 		if elem.Kind() == reflect.Ptr || elem.Kind() == reflect.Interface {
-			derefed = elem.Elem()
+			elem = elem.Elem()
 		}
 
-		switch derefed.Kind() {
-		// case reflect.Struct:
-		// 	elem = elem.FieldByNameFunc(func(str string) bool {
-		// 		return strings.ToLower(str) == sel
-		// 	})
+		switch elem.Kind() {
 		case reflect.Slice:
 			index, err := strconv.Atoi(sel)
 			if err != nil {
 				return elem, sel, fmt.Errorf("invalid index value: %s", sel)
 			}
-			elem = derefed.Index(index)
+			elem = elem.Index(index)
 		case reflect.Map:
 			found := false
-			for _, key := range derefed.MapKeys() {
+			for _, key := range elem.MapKeys() {
 				if key.String() == sel {
-					// elem = elem.MapIndex(key)
-					elem = derefed.MapIndex(key)
+					// if len(components) != 2 {
+					// }
+					elem = elem.MapIndex(key)
 					found = true
 					break
 				}
@@ -192,7 +194,7 @@ func pathToParent(tree reflect.Value, path string) (reflect.Value, string, error
 				return elem, sel, fmt.Errorf("invalid path: %s", path)
 			}
 		default:
-			return elem, sel, fmt.Errorf("unrecognized type: %s", derefed.Kind())
+			return elem, sel, fmt.Errorf("unrecognized type: %s", elem.Kind())
 		}
 
 		if elem.Kind() == reflect.Invalid {

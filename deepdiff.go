@@ -17,6 +17,9 @@ type Config struct {
 	// If true Diff will calculate "moves" that describe changing the parent of
 	// a subtree
 	MoveDeltas bool
+	// Setting Changes to true will have diff represent in-place value shifts
+	// as changes instead of add-delete pairs
+	Changes bool
 }
 
 // DiffOption is a function that adjust a config, zero or more DiffOptions
@@ -37,7 +40,7 @@ func NewDeepDiff(opts ...DiffOption) *DeepDiff {
 	}
 
 	return &DeepDiff{
-		changes:    false,
+		changes:    cfg.Changes,
 		moveDeltas: cfg.MoveDeltas,
 	}
 }
@@ -48,33 +51,28 @@ func NewDeepDiff(opts ...DiffOption) *DeepDiff {
 // future use. specifically: bailing before delta calculation based on a
 // configurable threshold
 func (dd *DeepDiff) Diff(ctx context.Context, a, b interface{}) ([]*Delta, error) {
-	deepdiff := &diff{cfg: dd.config(), d1: a, d2: b}
+	deepdiff := &diff{moves: dd.moveDeltas, changes: dd.changes, d1: a, d2: b}
 	return deepdiff.diff(ctx), nil
 }
 
 // StatDiff calculates a diff script and diff stats
 func (dd *DeepDiff) StatDiff(ctx context.Context, a, b interface{}) ([]*Delta, *Stats, error) {
-	deepdiff := &diff{cfg: dd.config(), d1: a, d2: b, stats: &Stats{}}
+	deepdiff := &diff{moves: dd.moveDeltas, changes: dd.changes, d1: a, d2: b, stats: &Stats{}}
 	return deepdiff.diff(ctx), deepdiff.stats, nil
 }
 
 // Stat calculates the DiffStata between two documents
 func (dd *DeepDiff) Stat(ctx context.Context, a, b interface{}) (*Stats, error) {
-	deepdiff := &diff{cfg: dd.config(), d1: a, d2: b, stats: &Stats{}}
+	deepdiff := &diff{moves: dd.moveDeltas, changes: dd.changes, d1: a, d2: b, stats: &Stats{}}
 	deepdiff.diff(ctx)
 	return deepdiff.stats, nil
-}
-
-func (dd *DeepDiff) config() *Config {
-	return &Config{
-		MoveDeltas: dd.moveDeltas,
-	}
 }
 
 // diff is a state machine for calculating an edit script that transitions
 // between two state trees
 type diff struct {
-	cfg     *Config
+	moves   bool // calculate moves flag
+	changes bool // calculate changes flag
 	stats   *Stats
 	d1, d2  interface{}
 	t1, t2  node
@@ -287,7 +285,8 @@ func propagateMatchToChildren(n node) {
 	}
 }
 
-// calculate inserts, changes, deletes, & moves
+// calculate inserts, deletes, and/or changes & moves by walking the matched
+// tree checking for edits
 func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 	walkSorted(t1, "", func(p string, n node) bool {
 		if n.Match() == nil {
@@ -363,7 +362,7 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 			return false
 		}
 
-		if d.cfg.MoveDeltas {
+		if d.moves {
 			// If we have a match & parents are different, this corresponds to a move
 			if path(match.Parent()) != path(n.Parent()) {
 				delta := &Delta{
@@ -407,13 +406,20 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 			// TODO (b5): this needs to be a check to see if it's a leaf node
 			// (eg, empty object is a leaf node)
 			if delta := compareScalar(match, n, p); delta != nil {
-				dts = append(dts, delta)
+				if d.changes {
+					dts = append(dts, delta)
+				} else {
+					dts = append(dts,
+						&Delta{Type: DTDelete, Path: delta.Path, Value: delta.SourceValue},
+						&Delta{Type: DTInsert, Path: delta.Path, Value: delta.Value},
+					)
+				}
 			}
 		}
 		return true
 	})
 
-	if d.cfg.MoveDeltas {
+	if d.moves {
 		var cleanups []string
 		walkSorted(t2, "", func(p string, n node) bool {
 			if n.Type() == ntArray && n.Match() != nil {

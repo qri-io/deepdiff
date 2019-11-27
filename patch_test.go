@@ -112,9 +112,17 @@ func TestPatch(t *testing.T) {
 				&Delta{Type: DTDelete, Path: "/b", Value: false},
 			},
 		},
+
+		// // TODO (b5): map values are not mutable in go. these tests attempt to mutate
+		// // values stored within maps, and will fail. I think this'll be easier to solve
+		// // after transitioning to a hierarchical change representation format
 		// {
-		//  TODO (b5): I have no idea why this isn't working at the moment, need to figure out what's
-		//  causing weird refelction pointer nonsense. I think it's from successive delete-then-insert
+		// 	"remove scalar from array in object",
+		// 	map[string]interface{}{"a": []interface{}{false, "yep"}, "b": true},
+		// 	map[string]interface{}{"a": []interface{}{"yep"}, "b": true},
+		// 	[]*Delta{&Delta{Type: DTDelete, SourcePath: "/a/0"}},
+		// },
+		// {
 		// 	"move from object to array",
 		// 	map[string]interface{}{"a": false, "b": []interface{}{float64(2)}},
 		// 	map[string]interface{}{"b": []interface{}{float64(2), false}},
@@ -128,21 +136,22 @@ func TestPatch(t *testing.T) {
 		// },
 	}
 
-	for i, c := range cases {
-		if err := Patch(&c.tree, c.patch); err != nil {
-			t.Errorf("%d. %s error: %s", i, c.description, err)
-			continue
-		}
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			if err := Patch(&c.tree, c.patch); err != nil {
+				t.Fatalf("patch error: %s", err)
+			}
 
-		if !reflect.DeepEqual(c.tree, c.expect) {
-			t.Errorf("%d. %s result mismatch", i, c.description)
-			if data, err := json.Marshal(c.tree); err == nil {
-				t.Log("got   :", string(data))
+			if !reflect.DeepEqual(c.tree, c.expect) {
+				t.Errorf("result mismatch")
+				if data, err := json.Marshal(c.tree); err == nil {
+					t.Log("got   :", string(data))
+				}
+				if data, err := json.Marshal(c.expect); err == nil {
+					t.Log("expect:", string(data))
+				}
 			}
-			if data, err := json.Marshal(c.expect); err == nil {
-				t.Log("expect:", string(data))
-			}
-		}
+		})
 	}
 }
 

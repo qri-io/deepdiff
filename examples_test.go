@@ -68,11 +68,14 @@ func ExampleDiffJSON() {
 	}
 
 	fmt.Println(change)
-	// Output: baz:
+	// Output: + a: 99
+	// - a: 100
+	// baz:
+	//   + e: "thirty-thousand-something-dogecoin"
 	//   + f: false
+	//   - e: null
 	//   - g: "apples-and-oranges"
 	//   a:
-	//     ~ b: 5
-	//   ~ e: "thirty-thousand-something-dogecoin"
-	// ~ a: 99
+	//     + b: 5
+	//     - b: 4
 }

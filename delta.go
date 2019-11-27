@@ -4,18 +4,20 @@ package deepdiff
 type Operation string
 
 const (
+	// DTContext indicates unchanged contextual details present in both A and B
+	DTContext = Operation(" ")
 	// DTDelete means making the children of a node
 	// become the children of a node's parent
-	DTDelete = Operation("delete")
+	DTDelete = Operation("-")
 	// DTInsert is the compliment of deleting, adding
 	// children of a parent node to a new node, and making
 	// that node a child of the original parent
-	DTInsert = Operation("insert")
+	DTInsert = Operation("+")
 	// DTMove is the succession of a deletion & insertion
 	// of the same node
-	DTMove = Operation("move")
+	DTMove = Operation(">")
 	// DTUpdate is an alteration of a scalar data type (string, bool, float, etc)
-	DTUpdate = Operation("update")
+	DTUpdate = Operation("~")
 )
 
 // Delta represents a change between a source & destination document

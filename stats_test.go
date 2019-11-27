@@ -25,9 +25,9 @@ func TestCalcStats(t *testing.T) {
 		Right:       16,
 		LeftWeight:  186,
 		RightWeight: 268,
-		Inserts:     3,
-		Updates:     3,
-		Deletes:     1,
+		Inserts:     6,
+		Updates:     0,
+		Deletes:     4,
 		Moves:       0,
 	}
 
