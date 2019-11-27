@@ -8,7 +8,6 @@ import (
 	"hash/fnv"
 	"reflect"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -220,17 +219,17 @@ func bestCandidate(t1Candidates []node, n2 node, t2Weight int) {
 }
 
 func (d *diff) optimize(t1, t2 node) {
-	walkPostfix(t1, "", func(p string, n node) {
+	walkPostfix(t1, nil, func(p []string, n node) {
 		propagateMatchToParent(n)
 	})
-	walkPostfix(t2, "", func(p string, n node) {
+	walkPostfix(t2, nil, func(p []string, n node) {
 		propagateMatchToParent(n)
 	})
-	walk(t1, "", func(p string, n node) bool {
+	walk(t1, nil, func(p []string, n node) bool {
 		propagateMatchToChildren(n)
 		return true
 	})
-	walk(t2, "", func(p string, n node) bool {
+	walk(t2, nil, func(p []string, n node) bool {
 		propagateMatchToChildren(n)
 		return true
 	})
@@ -285,17 +284,26 @@ func propagateMatchToChildren(n node) {
 	}
 }
 
-// calculate inserts, deletes, and/or changes & moves by walking the matched
-// tree checking for edits
+// calculate inserts, deletes, and/or changes & moves by folding tree A into
+// tree B, adding unmatched nodes from A to B as deletes
 func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
-	walkSorted(t1, "", func(p string, n node) bool {
+
+	// fold t1 into t2, adding deletes to t2
+	walkSorted(t1, nil, func(p []string, n node) bool {
 		if n.Match() == nil {
-			delta := &Delta{
-				Type:  DTDelete,
-				Path:  p,
-				Value: n.Value(),
+			n.SetChangeType(DTDelete)
+
+			if cmp, ok := n.(compound); ok {
+				cmp.DropChildNodes()
 			}
-			dts = append(dts, delta)
+
+			// delta := &Delta{
+			// 	Type:  DTDelete,
+			// 	Path:  p[len(p)-1],
+			// 	Value: n.Value(),
+			// }
+			addNode(t2, n, p)
+			// dts = append(dts, delta)
 
 			// update t1 array values to reflect deletion so later comparisons will be
 			// accurate. only place where this really applies is parent of delete is
@@ -317,24 +325,37 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 				}
 			}
 
-			// at this point we have the most general insert possible. By
-			// returning false here we stop traversing to any existing children
+			// at this point we have the most general insert we know of
+			if cmp, ok := n.(compound); ok {
+				// drop any childs node references so subsequent iterations of the
+				// tree to build up a delta don't iterate any deeper
+				cmp.DropChildNodes()
+			}
+
+			// by returning false here we stop traversing to any existing children
 			// avoiding redundant inserts already described by the parent
 			return false
 		}
 		return true
 	})
 
-	var parentMoves []*Delta
-	walkSorted(t2, "", func(p string, n node) bool {
+	// var parentMoves []*Delta
+	walkSorted(t2, nil, func(p []string, n node) bool {
+		// at this point deletes from t1 have been moved here, need to skip 'em
+		// because n.Match will be a circular reference
+		if n.ChangeType() == DTDelete {
+			return false
+		}
+
 		match := n.Match()
 		if match == nil {
-			delta := &Delta{
-				Type:  DTInsert,
-				Path:  p,
-				Value: n.Value(),
-			}
-			dts = append(dts, delta)
+			n.SetChangeType(DTInsert)
+			// delta := &Delta{
+			// 	Type:  DTInsert,
+			// 	Path:  p[len(p)-1],
+			// 	Value: n.Value(),
+			// }
+			// dts = append(dts, delta)
 
 			// update t1 array values to reflect insertion so later comparisons will be
 			// accurate. only place where this really applies is parent of insert is
@@ -356,24 +377,31 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 				}
 			}
 
-			// at this point we have the most general insert possible. By
-			// returning false here we stop traversing to any existing children
+			// at this point we have the most general insert we know of
+			if cmp, ok := n.(compound); ok {
+				// drop any childs node references so subsequent iterations of the
+				// tree to build up a delta don't iterate any deeper
+				cmp.DropChildNodes()
+			}
+
+			// By returning false here we stop traversing to any existing children
 			// avoiding redundant inserts already described by the parent
 			return false
 		}
 
 		if d.moves {
 			// If we have a match & parents are different, this corresponds to a move
-			if path(match.Parent()) != path(n.Parent()) {
-				delta := &Delta{
-					Type:        DTMove,
-					Path:        p,
-					Value:       n.Value(),
-					SourcePath:  path(match),
-					SourceValue: match.Value(),
-				}
-				dts = append(dts, delta)
-				parentMoves = append(parentMoves, delta)
+			if pathString(path(match.Parent())) != pathString(path(n.Parent())) {
+				// delta := &Delta{
+				// 	Type:        DTMove,
+				// 	Path:        p[len(p)-1],
+				// 	Value:       n.Value(),
+				// 	SourcePath:  pathString(path(match)),
+				// 	SourceValue: match.Value(),
+				// }
+				// dts = append(dts, delta)
+				// parentMoves = append(parentMoves, delta)
+				n.SetChangeType(DTMove)
 
 				// update t1 array values to reflect insertion so later comparisons will be
 				// accurate. only place where this really applies is parent of insert is
@@ -405,82 +433,110 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 			// check if value is scalar, creating a change delta if so
 			// TODO (b5): this needs to be a check to see if it's a leaf node
 			// (eg, empty object is a leaf node)
-			if delta := compareScalar(match, n, p); delta != nil {
-				if d.changes {
-					dts = append(dts, delta)
-				} else {
-					dts = append(dts,
-						&Delta{Type: DTDelete, Path: delta.Path, Value: delta.SourceValue},
-						&Delta{Type: DTInsert, Path: delta.Path, Value: delta.Value},
-					)
-				}
+			if delta := compareScalar(match, n, p[len(p)-1]); delta != nil {
+				n.SetChangeType(DTUpdate)
+				// if d.changes {
+				// 	// addDelta(root, delta, p)
+				// 	dts = append(dts, delta)
+				// } else {
+				// 	// addDelta(root, &Delta{Type: DTDelete, Path: p[len(p)-1], Value: delta.SourceValue}, p)
+				// 	// addDelta(root, &Delta{Type: DTInsert, Path: p[len(p)-1], Value: delta.Value}, p)
+				// 	// dts = append(dts,
+				// 	// 	&Delta{Type: DTDelete, Path: delta.Path, Value: delta.SourceValue},
+				// 	// 	&Delta{Type: DTInsert, Path: delta.Path, Value: delta.Value},
+				// 	// )
+				// }
 			}
 		}
 		return true
 	})
 
-	if d.moves {
-		var cleanups []string
-		walkSorted(t2, "", func(p string, n node) bool {
-			if n.Type() == ntArray && n.Match() != nil {
-				// matches to same array-type parent require checking for shuffles within the parent
-				// *expensive*
-				deltas := calcReorderDeltas(n.Match().(compound).Children(), n.(compound).Children())
-				for _, d := range deltas {
-					cleanups = append(cleanups, d.SourcePath, d.Path)
-				}
-				if deltas != nil {
-					dts = append(dts, deltas...)
-					return false
-				}
-			}
-			return true
-		})
+	// if d.moves {
+	// 	var cleanups []string
+	// 	walkSorted(t2, nil, func(p []string, n node) bool {
+	// 		if n.Type() == ntArray && n.Match() != nil {
+	// 			// matches to same array-type parent require checking for shuffles within the parent
+	// 			// *expensive*
+	// 			deltas := calcReorderDeltas(n.Match().(compound).Children(), n.(compound).Children())
+	// 			for _, d := range deltas {
+	// 				cleanups = append(cleanups, d.SourcePath, d.Path)
+	// 			}
+	// 			if deltas != nil {
+	// 				dts = append(dts, deltas...)
+	// 				return false
+	// 			}
+	// 		}
+	// 		return true
+	// 	})
 
-		var cleaned []*Delta
-	CLEANUP:
-		for _, d := range dts {
-			for _, pth := range cleanups {
-				if d.Type == DTUpdate && (strings.HasPrefix(d.SourcePath, pth) || strings.HasPrefix(d.Path, pth)) {
-					continue CLEANUP
-				}
-			}
-			cleaned = append(cleaned, d)
-		}
-		return cleaned
-	}
+	// 	var cleaned []*Delta
+	// CLEANUP:
+	// 	for _, d := range dts {
+	// 		for _, pth := range cleanups {
+	// 			if d.Type == DTUpdate && (strings.HasPrefix(d.SourcePath, pth) || strings.HasPrefix(d.Path, pth)) {
+	// 				continue CLEANUP
+	// 			}
+	// 		}
+	// 		cleaned = append(cleaned, d)
+	// 	}
+	// 	return cleaned
+	// }
+
+	script, _ := d.childDeltas(t2.(compound))
 
 	if d.stats != nil {
-		for _, delta := range dts {
-			switch delta.Type {
-			case DTInsert:
-				if n := nodeAtPath(t2, delta.Path); n != nil {
-					if cmp, ok := n.(compound); ok {
-						d.stats.Inserts += cmp.DescendantsCount()
-					}
-				}
-				d.stats.Inserts++
-			case DTUpdate:
-				d.stats.Updates++
-			case DTDelete:
-				if n := nodeAtPath(t2, delta.Path); n != nil {
-					if cmp, ok := n.(compound); ok {
-						d.stats.Deletes += cmp.DescendantsCount()
-					}
-				}
-				d.stats.Deletes++
-			case DTMove:
-				if n := nodeAtPath(t2, delta.Path); n != nil {
-					if cmp, ok := n.(compound); ok {
-						d.stats.Moves += cmp.DescendantsCount()
-					}
-					d.stats.Moves++
-				}
-			}
-		}
+		calcStats(d.stats, script)
 	}
 
-	return dts
+	return script
+}
+
+func (d *diff) childDeltas(cmp compound) (changes []*Delta, hasChanges bool) {
+	ch := cmp.Children()
+
+	for _, n := range ch {
+		dlt := toDelta(n)
+		if dlt.Type == DTContext {
+			if childCmp, ok := n.(compound); ok {
+				if children, hasChanges := d.childDeltas(childCmp); hasChanges {
+					dlt.Value = nil
+					dlt.Deltas = children
+				}
+			}
+		} else {
+			hasChanges = true
+		}
+
+		// If we aren't outputting changes, convert to a delete/insert combo
+		if dlt.Type == DTUpdate && !d.changes {
+			changes = append(changes, &Delta{Type: DTDelete, Path: dlt.Path, Value: dlt.SourceValue})
+			dlt.Type = DTInsert
+			dlt.SourceValue = nil
+		}
+
+		changes = append(changes, dlt)
+	}
+
+	return changes, hasChanges
+}
+
+func calcStats(st *Stats, deltas []*Delta) {
+	for _, d := range deltas {
+		if len(d.Deltas) > 0 {
+			calcStats(st, d.Deltas)
+		}
+
+		switch d.Type {
+		case DTInsert:
+			st.Inserts++
+		case DTUpdate:
+			st.Updates++
+		case DTDelete:
+			st.Deletes++
+		case DTMove:
+			st.Moves++
+		}
+	}
 }
 
 // calcReorderDeltas creates deltas that describes moves within the same parent
@@ -583,12 +639,12 @@ func movedBNodes(allA, allB []node) []*Delta {
 
 		// don't add moves that have the same source & destination paths
 		// can be created by matches that move between parents
-		if path(am) != path(bm) {
+		if pathString(path(am)) != pathString(path(bm)) {
 			mv := &Delta{
 				Type:       DTMove,
-				Path:       path(bm),
+				Path:       pathString(path(bm)),
 				Value:      bm.Value(),
-				SourcePath: path(am),
+				SourcePath: pathString(path(am)),
 			}
 			deltas = append(deltas, mv)
 		}
@@ -702,4 +758,21 @@ func compareScalar(n1, n2 node, n2Path string) *Delta {
 		}
 	}
 	return nil
+}
+
+func toDelta(n node) *Delta {
+	d := &Delta{Type: n.ChangeType(), Path: n.Name()}
+	if string(d.Type) == "" {
+		d.Type = DTContext
+	}
+
+	switch d.Type {
+	case DTUpdate:
+		d.Value = n.Value()
+		d.SourceValue = n.Match().Value()
+	case DTInsert, DTDelete, DTContext:
+		d.Value = n.Value()
+	}
+
+	return d
 }

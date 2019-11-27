@@ -1,5 +1,9 @@
 package deepdiff
 
+import (
+	"encoding/json"
+)
+
 // Operation defines the operation of a Delta item
 type Operation string
 
@@ -38,4 +42,18 @@ type Delta struct {
 	SourcePath string `json:"SourcePath,omitempty"`
 	// the original  value this was changed from, will not always be present
 	SourceValue interface{} `json:"originalValue,omitempty"`
+
+	// Child Changes
+	Deltas []*Delta `json:"deltas,omitempty"`
+}
+
+// MarshalJSON implements a custom JOSN Marshaller
+func (d *Delta) MarshalJSON() ([]byte, error) {
+	v := []interface{}{d.Type, d.Path}
+	if len(d.Deltas) > 0 {
+		v = append(v, nil, d.Deltas)
+	} else {
+		v = append(v, d.Value)
+	}
+	return json.Marshal(v)
 }

@@ -45,14 +45,12 @@ type node interface {
 	Match() node
 	// assign this node's counterpart
 	SetMatch(node)
+
+	// node modification type accessor
+	ChangeType() (o Operation)
+	// assign a modification type to this node
+	SetChangeType(Operation)
 }
-
-// nodes implements the sort interface for a slice of nodes
-type nodes []node
-
-func (ns nodes) Len() int           { return len(ns) }
-func (ns nodes) Less(i, j int) bool { return ns[i].Name() < ns[j].Name() }
-func (ns nodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
 
 // compound represents a data type that can contain children
 // basically objects & arrays
@@ -62,9 +60,22 @@ type compound interface {
 	Children() []node
 	// get a child by name
 	Child(key string) node
+	// add a child node. when calling this it's important to never add a child
+	// that already exists
+	AddChild(n node)
 	// how many descendants this node has
 	DescendantsCount() int
+	// release all references to child nodes. note that the _value_ still contains
+	// the data this node represents
+	DropChildNodes()
 }
+
+// nodes implements the sort interface for a slice of nodes
+type nodes []node
+
+func (ns nodes) Len() int           { return len(ns) }
+func (ns nodes) Less(i, j int) bool { return ns[i].Name() < ns[j].Name() }
+func (ns nodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
 
 type object struct {
 	name   string
@@ -73,20 +84,23 @@ type object struct {
 	weight int
 	value  interface{}
 	match  node
+	change Operation
 
 	descendants int
 	children    map[string]node
 }
 
-func (o object) Type() nodeType       { return ntObject }
-func (o object) Name() string         { return o.name }
-func (o *object) SetName(name string) { o.name = name }
-func (o object) Hash() []byte         { return o.hash }
-func (o object) Weight() int          { return o.weight }
-func (o object) Parent() node         { return o.parent }
-func (o object) Value() interface{}   { return o.value }
-func (o object) Match() node          { return o.match }
-func (o *object) SetMatch(n node)     { o.match = n }
+func (o object) Type() nodeType              { return ntObject }
+func (o object) Name() string                { return o.name }
+func (o *object) SetName(name string)        { o.name = name }
+func (o object) Hash() []byte                { return o.hash }
+func (o object) Weight() int                 { return o.weight }
+func (o object) Parent() node                { return o.parent }
+func (o object) Value() interface{}          { return o.value }
+func (o object) Match() node                 { return o.match }
+func (o *object) SetMatch(n node)            { o.match = n }
+func (o *object) SetChangeType(dt Operation) { o.change = dt }
+func (o *object) ChangeType() Operation      { return o.change }
 func (o object) Children() []node {
 	nodes := make([]node, len(o.children))
 	i := 0
@@ -97,7 +111,15 @@ func (o object) Children() []node {
 	return nodes
 }
 func (o object) Child(name string) node { return o.children[name] }
-func (o object) DescendantsCount() int  { return o.descendants }
+func (o *object) AddChild(n node) {
+	if cmp, ok := n.(compound); ok {
+		o.descendants += cmp.DescendantsCount()
+	}
+	o.descendants++
+	o.children[n.Name()] = n
+}
+func (o *object) DropChildNodes()      { o.children = nil }
+func (o object) DescendantsCount() int { return o.descendants }
 
 type array struct {
 	name   string
@@ -106,28 +128,39 @@ type array struct {
 	weight int
 	value  interface{}
 	match  node
+	change Operation
 
 	descendants int
 	childNames  map[string]int
 	children    []node
 }
 
-func (c array) Type() nodeType       { return ntArray }
-func (c array) Name() string         { return c.name }
-func (c *array) SetName(name string) { c.name = name }
-func (c array) Hash() []byte         { return c.hash }
-func (c array) Weight() int          { return c.weight }
-func (c array) Parent() node         { return c.parent }
-func (c array) Value() interface{}   { return c.value }
-func (c array) Match() node          { return c.match }
-func (c *array) SetMatch(n node)     { c.match = n }
-func (c array) Children() []node     { return c.children }
+func (c array) Type() nodeType              { return ntArray }
+func (c array) Name() string                { return c.name }
+func (c *array) SetName(name string)        { c.name = name }
+func (c array) Hash() []byte                { return c.hash }
+func (c array) Weight() int                 { return c.weight }
+func (c array) Parent() node                { return c.parent }
+func (c array) Value() interface{}          { return c.value }
+func (c array) Match() node                 { return c.match }
+func (c *array) SetMatch(n node)            { c.match = n }
+func (c *array) ChangeType() Operation      { return c.change }
+func (c *array) SetChangeType(dt Operation) { c.change = dt }
+func (c array) Children() []node            { return c.children }
 func (c array) Child(name string) node {
 	if c.childNames[name] < len(c.children) {
 		return c.children[c.childNames[name]]
 	}
 	return nil
 }
+func (c *array) AddChild(n node) {
+	if cmp, ok := n.(compound); ok {
+		c.descendants += cmp.DescendantsCount()
+	}
+	c.descendants++
+	c.children = append(c.children, n)
+}
+func (c *array) DropChildNodes()      { c.children = nil }
 func (c array) DescendantsCount() int { return c.descendants }
 
 type scalar struct {
@@ -138,17 +171,20 @@ type scalar struct {
 	value  interface{}
 	weight int
 	match  node
+	change Operation
 }
 
-func (s scalar) Type() nodeType       { return s.t }
-func (s scalar) Name() string         { return s.name }
-func (s *scalar) SetName(name string) { s.name = name }
-func (s scalar) Hash() []byte         { return s.hash }
-func (s scalar) Weight() int          { return s.weight }
-func (s scalar) Parent() node         { return s.parent }
-func (s scalar) Value() interface{}   { return s.value }
-func (s scalar) Match() node          { return s.match }
-func (s *scalar) SetMatch(n node)     { s.match = n }
+func (s scalar) Type() nodeType              { return s.t }
+func (s scalar) Name() string                { return s.name }
+func (s *scalar) SetName(name string)        { s.name = name }
+func (s scalar) Hash() []byte                { return s.hash }
+func (s scalar) Weight() int                 { return s.weight }
+func (s scalar) Parent() node                { return s.parent }
+func (s scalar) Value() interface{}          { return s.value }
+func (s scalar) Match() node                 { return s.match }
+func (s *scalar) SetMatch(n node)            { s.match = n }
+func (s *scalar) ChangeType() Operation      { return s.change }
+func (s *scalar) SetChangeType(dt Operation) { s.change = dt }
 
 func (d *diff) prepTrees(ctx context.Context) (t1, t2 node, t1nodes map[string][]node) {
 	var (
@@ -352,7 +388,7 @@ func preprocessType(v interface{}) interface{} {
 }
 
 // path computes the string path from
-func path(n node) string {
+func path(n node) []string {
 	var path []string
 	for {
 		if n == nil || n.Name() == "" {
@@ -361,13 +397,13 @@ func path(n node) string {
 		path = append([]string{n.Name()}, path...)
 		n = n.Parent()
 	}
-	return "/" + strings.Join(path, "/")
+	return path
 }
 
 // walk a tree in top-down (prefix) order
-func walk(tree node, path string, fn func(path string, n node) bool) {
+func walk(tree node, path []string, fn func(path []string, n node) bool) {
 	if tree.Name() != "" {
-		path += fmt.Sprintf("/%s", tree.Name())
+		path = append(path, tree.Name())
 	}
 	kontinue := fn(path, tree)
 	if cmp, ok := tree.(compound); kontinue && ok {
@@ -379,9 +415,9 @@ func walk(tree node, path string, fn func(path string, n node) bool) {
 
 // walk a tree in top-down (prefix) order, sorting array keys before recursing.
 // more expensive
-func walkSorted(tree node, path string, fn func(path string, n node) bool) {
+func walkSorted(tree node, path []string, fn func(path []string, n node) bool) {
 	if tree.Name() != "" {
-		path += fmt.Sprintf("/%s", tree.Name())
+		path = append(path, tree.Name())
 	}
 
 	kontinue := fn(path, tree)
@@ -394,10 +430,14 @@ func walkSorted(tree node, path string, fn func(path string, n node) bool) {
 	}
 }
 
+func pathString(p []string) string {
+	return "/" + strings.Join(p, "/")
+}
+
 // walk a tree in bottom up (postfix) order
-func walkPostfix(tree node, path string, fn func(path string, n node)) {
+func walkPostfix(tree node, path []string, fn func(path []string, n node)) {
 	if tree.Name() != "" {
-		path += fmt.Sprintf("/%s", tree.Name())
+		path = append(path, tree.Name())
 	}
 	if cmp, ok := tree.(compound); ok {
 		for _, n := range cmp.Children() {
@@ -407,13 +447,9 @@ func walkPostfix(tree node, path string, fn func(path string, n node)) {
 	fn(path, tree)
 }
 
-func nodeAtPath(tree node, path string) (n node) {
-	names := strings.Split(path, "/")
-	if names[0] == "" {
-		names = names[1:]
-	}
+func nodeAtPath(tree node, path []string) (n node) {
 	n = tree
-	for _, name := range names {
+	for _, name := range path {
 		if cmp, ok := n.(compound); ok {
 			n = cmp.Child(name)
 			if n == nil {
@@ -422,4 +458,18 @@ func nodeAtPath(tree node, path string) (n node) {
 		}
 	}
 	return
+}
+
+func addNode(tree, toAdd node, paths []string) {
+	if cmp, ok := tree.(compound); ok {
+		for _, name := range paths[:len(paths)-1] {
+			tree = cmp.Child(name)
+			if tree == nil {
+				return
+			}
+		}
+	}
+	if cmp, ok := tree.(compound); ok {
+		cmp.AddChild(toAdd)
+	}
 }

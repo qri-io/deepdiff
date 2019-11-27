@@ -138,7 +138,7 @@ func TestPatch(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
-			if err := Patch(&c.tree, c.patch); err != nil {
+			if err := Patch(c.patch, &c.tree); err != nil {
 				t.Fatalf("patch error: %s", err)
 			}
 

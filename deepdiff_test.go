@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/go-cmp/cmp"
 	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 type TestCase struct {
@@ -21,10 +22,11 @@ type TestCase struct {
 
 func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 	var (
-		src interface{}
-		dst interface{}
-		dd  = NewDeepDiff(opts...)
-		ctx = context.Background()
+		src    interface{}
+		result interface{}
+		dst    interface{}
+		dd     = NewDeepDiff(opts...)
+		ctx    = context.Background()
 	)
 
 	for _, c := range cases {
@@ -32,27 +34,36 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 			if err := json.Unmarshal([]byte(c.src), &src); err != nil {
 				t.Fatal(err)
 			}
+			if err := json.Unmarshal([]byte(c.src), &result); err != nil {
+				t.Fatal(err)
+			}
 			if err := json.Unmarshal([]byte(c.dst), &dst); err != nil {
 				t.Fatal(err)
 			}
 
-			diff, err := dd.Diff(ctx, src, dst)
+			diff, err := dd.Diff(ctx, result, dst)
 			if err != nil {
 				t.Fatalf("Diff error: %s", err)
 			}
 
-			if err := CompareDiffs(c.expect, diff); err != nil {
-				t.Errorf("result mismatch: %s", err)
+			// if err := CompareDiffs(c.expect, diff); err != nil {
+			// 	t.Errorf("result mismatch: %s", err)
+			// }
+			if diffDiff := cmp.Diff(c.expect, diff); diffDiff != "" {
+				t.Errorf("diff script response mismatch (-want +got):\n%s", diffDiff)
 			}
 
-			if err := Patch(&src, diff); err != nil {
+			// data, _ := json.MarshalIndent(diff, "", "  ")
+			// t.Logf("diff: %s\n", data)
+
+			if err := Patch(diff, &result); err != nil {
 				t.Errorf("error patching source: %s", err)
 			}
-			if !reflect.DeepEqual(src, dst) {
+
+			if diff := cmp.Diff(dst, result); diff != "" {
 				srcData, _ := json.Marshal(src)
 				dstData, _ := json.Marshal(dst)
-				patchData, _ := json.Marshal(diff)
-				t.Errorf("patched result mismatch:\nsrc  : %s\ndst  : %s\npatch:%s", string(srcData), string(dstData), string(patchData))
+				t.Errorf("patched result mismatch:\nsrc  : %s\ndst  : %s\ndiff (-want, +got):\n%s\n", string(srcData), string(dstData), diff)
 			}
 		})
 	}
@@ -61,7 +72,10 @@ func RunTestCases(t *testing.T, cases []TestCase, opts ...DiffOption) {
 func CompareDiffs(a, b []*Delta) error {
 	if len(a) != len(b) {
 		ad, _ := json.MarshalIndent(a, "", " ")
-		bd, _ := json.MarshalIndent(b, "", " ")
+		bd, err := json.MarshalIndent(b, "", " ")
+		if err != nil {
+			panic(err)
+		}
 		return fmt.Errorf("length mismatch: %d != %d\na: %v\nb: %v", len(a), len(b), string(ad), string(bd))
 	}
 
@@ -104,65 +118,73 @@ func TestBasicDiffing(t *testing.T) {
 			`[[0,1,2]]`,
 			`[[0,1,3]]`,
 			[]*Delta{
-				{Type: DTDelete, Path: "/0/2", Value: float64(2)},
-				{Type: DTInsert, Path: "/0/2", Value: float64(3)},
+				{Type: DTContext, Path: "0", Deltas: []*Delta{
+					{Type: DTContext, Path: "0", Value: float64(0)},
+					{Type: DTContext, Path: "1", Value: float64(1)},
+					{Type: DTDelete, Path: "2", Value: float64(2)},
+					{Type: DTInsert, Path: "2", Value: float64(3)},
+				}},
 			},
 		},
-		// TODO (b5) - skipping because of unassignable object key problem
+		{
+			"scalar change object",
+			`{"a":[0,1,2],"b":true}`,
+			`{"a":[0,1,3],"b":true}`,
+			[]*Delta{
+				{Type: DTContext, Path: "a", Deltas: []*Delta{
+					{Type: DTContext, Path: "0", Value: float64(0)},
+					{Type: DTContext, Path: "1", Value: float64(1)},
+					{Type: DTDelete, Path: "2", Value: float64(2)},
+					{Type: DTInsert, Path: "2", Value: float64(3)},
+				}},
+				{Type: DTContext, Path: "b", Value: true},
+			},
+		},
 		// {
-		// 	"scalar change object",
-		// 	`{"a":[0,1,2],"b":true}`,
-		// 	`{"a":[0,1,3],"b":true}`,
+		// 	"insert into array",
+		// 	`[[1]]`,
+		// 	`[[1],[2]]`,
 		// 	[]*Delta{
-		// 		{Type: DTDelete, Path: "/a/2", Value: float64(2)},
-		// 		{Type: DTInsert, Path: "/a/2", Value: float64(3)},
+		// 		// TODO (b5): Need to decide on what expected insert path for arrays is. should it be the index
+		// 		// to *begin* insertion at (aka the index just before what will be the index of the new insertion)?
+		// 		{Type: DTInsert, Path: "/1", Value: []interface{}{float64(2)}},
 		// 	},
 		// },
-		{
-			"insert array",
-			`[[1]]`,
-			`[[1],[2]]`,
-			[]*Delta{
-				// TODO (b5): Need to decide on what expected insert path for arrays is. should it be the index
-				// to *begin* insertion at (aka the index just before what will be the index of the new insertion)?
-				{Type: DTInsert, Path: "/1", Value: []interface{}{float64(2)}},
-			},
-		},
-		{
-			"insert object",
-			`{"a":[1]}`,
-			`{"a":[1],"b":[2]}`,
-			[]*Delta{
-				// TODO (b5): Need to decide on what expected insert path for arrays is. should it be the index
-				// to *begin* insertion at (aka the index just before what will be the index of the new insertion)?
-				{Type: DTInsert, Path: "/b", Value: []interface{}{float64(2)}},
-			},
-		},
-		{
-			"delete array",
-			`[[1],[2],[3]]`,
-			`[[1],[3]]`,
-			[]*Delta{
-				{Type: DTDelete, Path: "/1", Value: []interface{}{float64(2)}},
-			},
-		},
-		{
-			"delete object",
-			`{"a":[1],"b":[2],"c":[3]}`,
-			`{"a":[1],"c":[3]}`,
-			[]*Delta{
-				{Type: DTDelete, Path: "/b", Value: []interface{}{float64(2)}},
-			},
-		},
-		{
-			"key change case",
-			`{"a":[1],"b":[2],"c":[3]}`,
-			`{"A":[1],"b":[2],"c":[3]}`,
-			[]*Delta{
-				{Type: DTDelete, Path: "/a", Value: []interface{}{float64(1)}},
-				{Type: DTInsert, Path: "/A", Value: []interface{}{float64(1)}},
-			},
-		},
+		// {
+		// 	"insert into object",
+		// 	`{"a":[1]}`,
+		// 	`{"a":[1],"b":[2]}`,
+		// 	[]*Delta{
+		// 		// TODO (b5): Need to decide on what expected insert path for arrays is. should it be the index
+		// 		// to *begin* insertion at (aka the index just before what will be the index of the new insertion)?
+		// 		{Type: DTInsert, Path: "/b", Value: []interface{}{float64(2)}},
+		// 	},
+		// },
+		// {
+		// 	"delete from array",
+		// 	`[[1],[2],[3]]`,
+		// 	`[[1],[3]]`,
+		// 	[]*Delta{
+		// 		{Type: DTDelete, Path: "/1", Value: []interface{}{float64(2)}},
+		// 	},
+		// },
+		// {
+		// 	"delete from object",
+		// 	`{"a":[1],"b":[2],"c":[3]}`,
+		// 	`{"a":[1],"c":[3]}`,
+		// 	[]*Delta{
+		// 		{Type: DTDelete, Path: "/b", Value: []interface{}{float64(2)}},
+		// 	},
+		// },
+		// {
+		// 	"key change case",
+		// 	`{"a":[1],"b":[2],"c":[3]}`,
+		// 	`{"A":[1],"b":[2],"c":[3]}`,
+		// 	[]*Delta{
+		// 		{Type: DTDelete, Path: "/a", Value: []interface{}{float64(1)}},
+		// 		{Type: DTInsert, Path: "/A", Value: []interface{}{float64(1)}},
+		// 	},
+		// },
 	}
 
 	RunTestCases(t, cases)
@@ -320,7 +342,7 @@ func TestDiffDotGraph(t *testing.T) {
 
 func dotGraphTree(d *diff) *bytes.Buffer {
 	mkID := func(pfx string, n node) string {
-		id := strings.Replace(path(n), "/", "", -1)
+		id := strings.Replace(pathString(path(n)), "/", "", -1)
 		if id == pfx {
 			id = "root"
 		}
@@ -333,10 +355,10 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 	fmt.Fprintf(buf, "  subgraph cluster_t1 {\n")
 	fmt.Fprintf(buf, "    label=\"t1\";\n")
 
-	walk(d.t1, "t1", func(p string, n node) bool {
+	walk(d.t1, nil, func(p []string, n node) bool {
 		if cmp, ok := n.(compound); ok {
 			pID := mkID("t1", cmp)
-			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
+			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, pathString(p), n.Weight())
 			for _, ch := range cmp.Children() {
 				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t1", ch))
 			}
@@ -347,10 +369,10 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 
 	fmt.Fprintf(buf, "  subgraph cluster_t2 {\n")
 	fmt.Fprintf(buf, "    label=\"t2\";\n")
-	walk(d.t2, "t2", func(p string, n node) bool {
+	walk(d.t2, nil, func(p []string, n node) bool {
 		if cmp, ok := n.(compound); ok {
 			pID := mkID("t2", cmp)
-			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, p, n.Weight())
+			fmt.Fprintf(buf, "    %s [label=\"%s\", tooltip=\"weight: %d\"];\n", pID, pathString(p), n.Weight())
 			for _, ch := range cmp.Children() {
 				fmt.Fprintf(buf, "    %s -> %s;\n", pID, mkID("t2", ch))
 			}
@@ -359,7 +381,7 @@ func dotGraphTree(d *diff) *bytes.Buffer {
 	})
 	fmt.Fprintf(buf, "  }\n\n")
 
-	walk(d.t2, "", func(p string, n node) bool {
+	walk(d.t2, nil, func(p []string, n node) bool {
 		nID := mkID("t2", n)
 		if n.Match() != nil {
 			fmt.Fprintf(buf, "  %s -> %s[color=red,penwidth=1.0];\n", nID, mkID("t1", n.Match()))
