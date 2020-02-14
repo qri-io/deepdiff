@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func ExampleDiffJSON() {
+func ExampleNew() {
 	// we'll use the background as our execution context
 	ctx := context.Background()
 
@@ -51,7 +51,7 @@ func ExampleDiffJSON() {
 	}
 
 	// create a differ, using the default configuration
-	dd := NewDeepDiff()
+	dd := New()
 
 	// Diff will produce a slice of Deltas that describe the structured changes.
 	// by default Diff will not calculate moves, only inserts, deletes, and

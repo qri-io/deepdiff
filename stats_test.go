@@ -25,13 +25,13 @@ func TestCalcStats(t *testing.T) {
 		Right:       16,
 		LeftWeight:  186,
 		RightWeight: 268,
-		Inserts:     6,
+		Inserts:     4,
 		Updates:     0,
 		Deletes:     4,
 		Moves:       0,
 	}
 
-	got, err := NewDeepDiff().Stat(context.Background(), a, b)
+	got, err := New().Stat(context.Background(), a, b)
 	if err != nil {
 		t.Fatal(err)
 	}

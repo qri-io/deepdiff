@@ -44,7 +44,7 @@ type Delta struct {
 	SourceValue interface{} `json:"originalValue,omitempty"`
 
 	// Child Changes
-	Deltas []*Delta `json:"deltas,omitempty"`
+	Deltas `json:"deltas,omitempty"`
 }
 
 // MarshalJSON implements a custom JOSN Marshaller
@@ -57,3 +57,28 @@ func (d *Delta) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(v)
 }
+
+// Deltas is a sortable slice of changes
+type Deltas []*Delta
+
+// Len returns the length of the slice
+func (ds Deltas) Len() int { return len(ds) }
+
+// opOrder determines a total order for operations. It's crucial that deletes
+// comve *before* inserts in diff script presentation
+var opOrder = map[Operation]uint{
+	DTDelete:  0,
+	DTContext: 1,
+	DTInsert:  2,
+	DTMove:    3,
+	DTUpdate:  4,
+}
+
+// Less returns trus if the value at index i is a smaller sort quantity than
+// the value at index j
+func (ds Deltas) Less(i, j int) bool {
+	return ds[i].Path < ds[j].Path || (ds[i].Path == ds[j].Path && opOrder[ds[i].Type] < opOrder[ds[j].Type])
+}
+
+// Swap reverses the values at indicies i & J
+func (ds Deltas) Swap(i, j int) { ds[i], ds[j] = ds[j], ds[i] }

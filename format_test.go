@@ -3,7 +3,7 @@ package deepdiff
 import "testing"
 
 func TestFormatPretty(t *testing.T) {
-	patch := []*Delta{
+	patch := Deltas{
 		{Type: DTInsert, Path: "/a", Value: 5},
 		{Type: DTUpdate, Path: "/a", Value: 5},
 		{Type: DTDelete, Path: "/a", Value: 5},

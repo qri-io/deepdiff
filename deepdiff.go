@@ -7,6 +7,7 @@ import (
 	"hash"
 	"hash/fnv"
 	"reflect"
+	"sort"
 	"strconv"
 	"sync"
 )
@@ -31,8 +32,8 @@ type DeepDiff struct {
 	moveDeltas bool
 }
 
-// NewDeepDiff creates a deepdiff struct
-func NewDeepDiff(opts ...DiffOption) *DeepDiff {
+// New creates a deepdiff struct
+func New(opts ...DiffOption) *DeepDiff {
 	cfg := &Config{}
 	for _, opt := range opts {
 		opt(cfg)
@@ -49,13 +50,13 @@ func NewDeepDiff(opts ...DiffOption) *DeepDiff {
 // currently Diff will never return an error, error returns are reserved for
 // future use. specifically: bailing before delta calculation based on a
 // configurable threshold
-func (dd *DeepDiff) Diff(ctx context.Context, a, b interface{}) ([]*Delta, error) {
+func (dd *DeepDiff) Diff(ctx context.Context, a, b interface{}) (Deltas, error) {
 	deepdiff := &diff{moves: dd.moveDeltas, changes: dd.changes, d1: a, d2: b}
 	return deepdiff.diff(ctx), nil
 }
 
 // StatDiff calculates a diff script and diff stats
-func (dd *DeepDiff) StatDiff(ctx context.Context, a, b interface{}) ([]*Delta, *Stats, error) {
+func (dd *DeepDiff) StatDiff(ctx context.Context, a, b interface{}) (Deltas, *Stats, error) {
 	deepdiff := &diff{moves: dd.moveDeltas, changes: dd.changes, d1: a, d2: b, stats: &Stats{}}
 	return deepdiff.diff(ctx), deepdiff.stats, nil
 }
@@ -102,7 +103,7 @@ type diff struct {
 //    correspond to inserted nodes.
 // 6. consider each matching node and decide if the node is at its right
 //    place, or whether it has been moved.
-func (d *diff) diff(ctx context.Context) []*Delta {
+func (d *diff) diff(ctx context.Context) Deltas {
 	d.t1, d.t2, d.t1Nodes = d.prepTrees(ctx)
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
@@ -286,7 +287,7 @@ func propagateMatchToChildren(n node) {
 
 // calculate inserts, deletes, and/or changes & moves by folding tree A into
 // tree B, adding unmatched nodes from A to B as deletes
-func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
+func (d *diff) calcDeltas(t1, t2 node) (dts Deltas) {
 
 	// fold t1 into t2, adding deletes to t2
 	walkSorted(t1, nil, func(p []string, n node) bool {
@@ -339,7 +340,7 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 		return true
 	})
 
-	// var parentMoves []*Delta
+	// var parentMoves Deltas
 	walkSorted(t2, nil, func(p []string, n node) bool {
 		// at this point deletes from t1 have been moved here, need to skip 'em
 		// because n.Match will be a circular reference
@@ -469,7 +470,7 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 	// 		return true
 	// 	})
 
-	// 	var cleaned []*Delta
+	// 	var cleaned Deltas
 	// CLEANUP:
 	// 	for _, d := range dts {
 	// 		for _, pth := range cleanups {
@@ -483,15 +484,12 @@ func (d *diff) calcDeltas(t1, t2 node) (dts []*Delta) {
 	// }
 
 	script, _ := d.childDeltas(t2.(compound))
-
-	if d.stats != nil {
-		calcStats(d.stats, script)
-	}
+	sortDeltasAndMaybeCalcStats(script, d.stats)
 
 	return script
 }
 
-func (d *diff) childDeltas(cmp compound) (changes []*Delta, hasChanges bool) {
+func (d *diff) childDeltas(cmp compound) (changes Deltas, hasChanges bool) {
 	ch := cmp.Children()
 
 	for _, n := range ch {
@@ -520,21 +518,25 @@ func (d *diff) childDeltas(cmp compound) (changes []*Delta, hasChanges bool) {
 	return changes, hasChanges
 }
 
-func calcStats(st *Stats, deltas []*Delta) {
+func sortDeltasAndMaybeCalcStats(deltas Deltas, st *Stats) {
+	sort.Sort(deltas)
+
 	for _, d := range deltas {
 		if len(d.Deltas) > 0 {
-			calcStats(st, d.Deltas)
+			sortDeltasAndMaybeCalcStats(d.Deltas, st)
 		}
 
-		switch d.Type {
-		case DTInsert:
-			st.Inserts++
-		case DTUpdate:
-			st.Updates++
-		case DTDelete:
-			st.Deletes++
-		case DTMove:
-			st.Moves++
+		if st != nil {
+			switch d.Type {
+			case DTInsert:
+				st.Inserts++
+			case DTUpdate:
+				st.Updates++
+			case DTDelete:
+				st.Deletes++
+			case DTMove:
+				st.Moves++
+			}
 		}
 	}
 }
@@ -546,7 +548,7 @@ func calcStats(st *Stats, deltas []*Delta) {
 //
 // reorder calculation is shingled into sets of maximum 50 values & processed parallel
 // to keep things fast at the expense of missing some common sequences from longer lists
-func calcReorderDeltas(a, b []node) (deltas []*Delta) {
+func calcReorderDeltas(a, b []node) (deltas Deltas) {
 	var wg sync.WaitGroup
 	max := len(a)
 	if len(b) > max {
@@ -584,7 +586,7 @@ func calcReorderDeltas(a, b []node) (deltas []*Delta) {
 	return
 }
 
-func movedBNodes(allA, allB []node) []*Delta {
+func movedBNodes(allA, allB []node) Deltas {
 	var a, b []node
 	for _, n := range allA {
 		if n.Match() != nil {
@@ -632,7 +634,7 @@ func movedBNodes(allA, allB []node) []*Delta {
 	amv := intersect(a, ass)
 	bmv := intersect(b, bss)
 
-	var deltas []*Delta
+	var deltas Deltas
 	for i := 0; i < len(amv); i++ {
 		am := amv[i]
 		bm := bmv[i]

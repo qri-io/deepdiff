@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-// FormatPretty converts a []*Delta into a colored text report, with:
+// FormatPretty converts a Deltas into a colored text report, with:
 // red "-" for deletions
 // green "+" for insertions
 // blue "~" for changes (an insert & delete at the same path)
 // This is very much a work in progress
-func FormatPretty(changes []*Delta) (string, error) {
+func FormatPretty(changes Deltas) (string, error) {
 	buf := &bytes.Buffer{}
 	pretty, err := pretty(changes)
 	if err != nil {
@@ -25,7 +25,7 @@ func FormatPretty(changes []*Delta) (string, error) {
 
 // FormatPrettyColor is the same as format pretty, but with tty color tags
 // to print colored text to terminals
-func FormatPrettyColor(changes []*Delta) (string, error) {
+func FormatPrettyColor(changes Deltas) (string, error) {
 	buf := &bytes.Buffer{}
 	pretty, err := pretty(changes)
 	if err != nil {
@@ -35,7 +35,7 @@ func FormatPrettyColor(changes []*Delta) (string, error) {
 	return buf.String(), nil
 }
 
-func pretty(changes []*Delta) (pretty map[string]interface{}, err error) {
+func pretty(changes Deltas) (pretty map[string]interface{}, err error) {
 	pretty = map[string]interface{}{}
 	var data []byte
 	for _, diff := range changes {

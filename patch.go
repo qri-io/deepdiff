@@ -7,7 +7,7 @@ import (
 )
 
 // Patch applies a change script (patch) to a value
-func Patch(deltas []*Delta, target interface{}) error {
+func Patch(deltas Deltas, target interface{}) error {
 	t := reflect.ValueOf(target)
 	if t.Kind() != reflect.Ptr {
 		return fmt.Errorf("must pass a pointer value to patch")
@@ -189,7 +189,7 @@ func descendant(target reflect.Value, keys []string) reflect.Value {
 }
 
 // // Patch applies a change script (patch) to a value
-// func Patch(v interface{}, patch []*Delta) (err error) {
+// func Patch(v interface{}, patch Deltas) (err error) {
 // 	rv := reflect.ValueOf(v)
 // 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
 // 		return fmt.Errorf("passed in value must be a pointer")
