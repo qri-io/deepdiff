@@ -4,118 +4,61 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"io"
 	"strings"
 )
 
-// FormatPretty converts a Deltas into a colored text report, with:
+// FormatPrettyString is a convenice wrapper that outputs to a string instead of
+// an io.Writer
+func FormatPrettyString(changes Deltas, colorTTY bool) (string, error) {
+	buf := &bytes.Buffer{}
+	if err := FormatPretty(buf, changes, colorTTY); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// FormatPretty writes a text report to w. if colorTTY is true it will add
 // red "-" for deletions
 // green "+" for insertions
 // blue "~" for changes (an insert & delete at the same path)
 // This is very much a work in progress
-func FormatPretty(changes Deltas) (string, error) {
-	buf := &bytes.Buffer{}
-	pretty, err := pretty(changes)
-	if err != nil {
-		return "", err
-	}
-	writePrettyString(buf, pretty, 0, false)
-	return buf.String(), nil
-}
+func FormatPretty(w io.Writer, changes Deltas, colorTTY bool) error {
+	var colorMap map[Operation]string
 
-// FormatPrettyColor is the same as format pretty, but with tty color tags
-// to print colored text to terminals
-func FormatPrettyColor(changes Deltas) (string, error) {
-	buf := &bytes.Buffer{}
-	pretty, err := pretty(changes)
-	if err != nil {
-		return "", err
-	}
-	writePrettyString(buf, pretty, 0, true)
-	return buf.String(), nil
-}
+	if colorTTY {
+		colorMap = map[Operation]string{
+			Operation("close"): "\x1b[0m", // end color tag
 
-func pretty(changes Deltas) (pretty map[string]interface{}, err error) {
-	pretty = map[string]interface{}{}
-	var data []byte
-	for _, diff := range changes {
-
-		path := strings.Split(diff.Path, "/")
-		name := ""
-		el := pretty
-		for i, p := range path {
-			name = p
-			if i < len(path)-1 && name != "" {
-				if el[p] == nil {
-					el[p] = map[string]interface{}{}
-				}
-				el = el[p].(map[string]interface{})
-			}
-		}
-
-		switch diff.Type {
-		case DTInsert:
-			if data, err = json.Marshal(diff.Value); err != nil {
-				return
-			}
-			el["+ "+name] = string(data)
-		case DTDelete:
-			if data, err = json.Marshal(diff.Value); err != nil {
-				return
-			}
-			el["- "+name] = string(data)
-		case DTUpdate:
-			if data, err = json.Marshal(diff.Value); err != nil {
-				return
-			}
-			el["~ "+name] = string(data)
+			DTContext: "\x1b[37m", // netural
+			DTInsert:  "\x1b[32m", // green
+			DTDelete:  "\x1b[31m", // red
+			DTUpdate:  "\x1b[34m", // blue
 		}
 	}
-	return
+
+	return formatPretty(w, changes, 0, colorMap)
 }
 
-func writePrettyString(buf *bytes.Buffer, pretty map[string]interface{}, indent int, color bool) {
-	var (
-		keys                                              = make([]string, len(pretty))
-		insertColor, deleteColor, updateColor, closeColor string
-	)
-
-	if color {
-		insertColor = "\x1b[32m"
-		deleteColor = "\x1b[31m"
-		updateColor = "\x1b[34m"
-		closeColor = "\x1b[0m"
-	}
-
-	i := 0
-	for key := range pretty {
-		keys[i] = key
-		i++
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		switch val := pretty[key].(type) {
-		case map[string]interface{}:
-			buf.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indent), key))
-			writePrettyString(buf, val, indent+1, color)
-		case string:
-			switch key[0] {
-			case '+':
-				buf.WriteString(fmt.Sprintf("%s%s", strings.Repeat("  ", indent), insertColor))
-				buf.WriteString(fmt.Sprintf("%s: %s", key, pretty[key]))
-				buf.WriteString(fmt.Sprintf("%s\n", closeColor))
-			case '-':
-				buf.WriteString(fmt.Sprintf("%s%s", strings.Repeat("  ", indent), deleteColor))
-				buf.WriteString(fmt.Sprintf("%s: %s", key, pretty[key]))
-				buf.WriteString(fmt.Sprintf("%s\n", closeColor))
-			case '~':
-				buf.WriteString(fmt.Sprintf("%s%s", strings.Repeat("  ", indent), updateColor))
-				buf.WriteString(fmt.Sprintf("%s: %s", key, pretty[key]))
-				buf.WriteString(fmt.Sprintf("%s\n", closeColor))
+func formatPretty(w io.Writer, changes Deltas, indent int, colorMap map[Operation]string) error {
+	for _, d := range changes {
+		dataStr := ""
+		if d.Value != nil {
+			d, err := json.Marshal(d.Value)
+			if err != nil {
+				return err
+			}
+			dataStr = string(d)
+		}
+		fmt.Fprintf(w, "%s%s%s%s: %s%s\n", strings.Repeat("  ", indent), colorMap[d.Type], d.Type, d.Path, dataStr, colorMap[Operation("close")])
+		if len(d.Deltas) > 0 {
+			if err := formatPretty(w, d.Deltas, indent+1, colorMap); err != nil {
+				return err
 			}
 		}
 	}
+
+	return nil
 }
 
 // FormatPrettyStats prints a string of stats info

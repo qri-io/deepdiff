@@ -13,6 +13,91 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+func Example() {
+	// we'll use the background as our execution context
+	ctx := context.Background()
+
+	// start with two slightly different json documents
+	aJSON := []byte(`{
+		"a": 100,
+		"baz": {
+			"a": {
+				"d": "apples-and-oranges"
+			}
+		}
+	}`)
+
+	bJSON := []byte(`{
+		"a": 99,
+		"baz": {
+			"a": {
+				"d": "apples-and-oranges"
+			},
+			"e": "thirty-thousand-something-dogecoin"
+		}
+	}`)
+
+	// unmarshal the data into generic interfaces
+	var a, b interface{}
+	if err := json.Unmarshal(aJSON, &a); err != nil {
+		panic(err)
+	}
+	if err := json.Unmarshal(bJSON, &b); err != nil {
+		panic(err)
+	}
+
+	// create a differ, using the default configuration
+	dd := New()
+
+	// Diff will produce a slice of Deltas that describe the structured changes.
+	// by default Diff will not calculate moves, only inserts, deletes, and
+	// updates
+	diffs, err := dd.Diff(ctx, a, b)
+	if err != nil {
+		panic(err)
+	}
+
+	// diffs use a custom compact JSON Marshaller
+	output, err := json.MarshalIndent(diffs, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(string(output))
+	// Output:
+	// [
+	//   [
+	//     "-",
+	//     "a",
+	//     100
+	//   ],
+	//   [
+	//     "+",
+	//     "a",
+	//     99
+	//   ],
+	//   [
+	//     " ",
+	//     "baz",
+	//     null,
+	//     [
+	//       [
+	//         " ",
+	//         "a",
+	//         {
+	//           "d": "apples-and-oranges"
+	//         }
+	//       ],
+	//       [
+	//         "+",
+	//         "e",
+	//         "thirty-thousand-something-dogecoin"
+	//       ]
+	//     ]
+	//   ]
+	// ]
+}
+
 type TestCase struct {
 	description string // description of what test is checking
 	src, dst    string // express test cases as json strings
@@ -420,16 +505,11 @@ func TestDiffStats(t *testing.T) {
 	}
 
 	expect := Deltas{
-		&Delta{
-			Type:  DTDelete,
-			Path:  "/b/0",
-			Value: []interface{}{"one", "two", "three"},
-		},
-		&Delta{
-			Type:  DTDelete,
-			Path:  "/b/0",
-			Value: []interface{}{"four", "five", "six"},
-		},
+		{Type: DTContext, Path: "a", Value: "apple"},
+		{Type: DTContext, Path: "b", Deltas: Deltas{
+			{Type: DTDelete, Path: "0", Value: []interface{}{"one", "two", "three"}},
+			{Type: DTDelete, Path: "0", Value: []interface{}{"four", "five", "six"}},
+		}},
 	}
 	if diffDiff := cmp.Diff(expect, diff); diffDiff != "" {
 		t.Errorf("deltas mismatch (-want +got):\n%s", diffDiff)
