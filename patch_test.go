@@ -111,18 +111,6 @@ func TestPatch(t *testing.T) {
 				}},
 			},
 		},
-		// {
-		// 	"move in object",
-		// 	map[string]interface{}{"a": false},
-		// 	map[string]interface{}{"b": false},
-		// 	Deltas{{Type: DTMove, SourcePath: "a", Path: "b", Value: false}},
-		// },
-		// {
-		// 	"move from object to nested object",
-		// 	map[string]interface{}{"a": false, "b": map[string]interface{}{"c": float64(2)}},
-		// 	map[string]interface{}{"b": map[string]interface{}{"c": float64(2), "d": false}},
-		// 	Deltas{{Type: DTMove, SourcePath: "/a", Path: "/b/d", Value: false}},
-		// },
 		{
 			"insert, update, then delete",
 			map[string]interface{}{"a": true, "b": float64(2)},
@@ -144,21 +132,6 @@ func TestPatch(t *testing.T) {
 				}},
 			},
 		},
-
-		// {
-		// 	"move from object to array",
-		// 	map[string]interface{}{"a": false, "b": []interface{}{float64(2)}},
-		// 	map[string]interface{}{"b": []interface{}{float64(2), false}},
-		// 	Deltas{
-		// 		{Type: DTMove, Path: "a", Path: "/b/1", Value: false}
-		// 	},
-		// },
-		// {
-		// 	"move from array to object",
-		// 	[]interface{}{float64(32), map[string]interface{}{}},
-		// 	[]interface{}{map[string]interface{}{"a": float64(32)}},
-		// 	Deltas{{Type: DTMove, SourcePath: "/0", Path: "/0/a", Value: float64(32)}},
-		// },
 	}
 
 	for _, c := range cases {

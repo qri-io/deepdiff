@@ -7,7 +7,6 @@ func TestFormatPretty(t *testing.T) {
 		{Type: DTInsert, Path: "a", Value: 5},
 		{Type: DTUpdate, Path: "a", Value: 5},
 		{Type: DTDelete, Path: "a", Value: 5},
-		{Type: DTMove, Path: "a", Value: 5},
 	}
 
 	str, err := FormatPrettyString(patch, false)
@@ -25,17 +24,17 @@ func TestFormatStatsPretty(t *testing.T) {
 		expect      string
 	}{
 		{"all plural",
-			&Stats{Left: 2, Right: 6, Inserts: 6, Updates: 2, Deletes: 2, Moves: 2},
-			"+4 elements. 6 inserts. 2 deletes. 2 updates. 2 moves.\n",
+			&Stats{Left: 2, Right: 6, Inserts: 6, Updates: 2, Deletes: 2},
+			"+4 elements. 6 inserts. 2 deletes. 2 updates.\n",
 		},
 		{"all singular",
-			&Stats{Left: 2, Right: 1, Inserts: 1, Updates: 1, Deletes: 1, Moves: 1},
-			"-1 element. 1 insert. 1 delete. 1 update. 1 move.\n",
+			&Stats{Left: 2, Right: 1, Inserts: 1, Updates: 1, Deletes: 1},
+			"-1 element. 1 insert. 1 delete. 1 update.\n",
 		},
 	}
 
 	for i, c := range cases {
-		got := FormatPrettyStats(c.input)
+		got := FormatPrettyStatsString(c.input, false)
 		if got != c.expect {
 			t.Errorf("%d %s\nwant:\n%s\ngot:\n%s", i, c.description, c.expect, got)
 		}
@@ -43,8 +42,8 @@ func TestFormatStatsPretty(t *testing.T) {
 }
 
 func TestFormatStatsNull(t *testing.T) {
-	got := FormatPrettyStats(nil)
-	expect := `<nil>`
+	got := FormatPrettyStatsString(nil, false)
+	expect := ``
 	if got != expect {
 		t.Errorf("want:\n%s\ngot:\n%s", expect, got)
 	}

@@ -11,7 +11,6 @@ type Stats struct {
 	Inserts int `json:"inserts,omitempty"` // number of nodes inserted
 	Updates int `json:"updates,omitempty"` // number of nodes updated
 	Deletes int `json:"deletes,omitempty"` // number of nodes deleted
-	Moves   int `json:"moves,omitempty"`   // number of nodes moved
 }
 
 // NodeChange returns a count of the shift between left & right trees

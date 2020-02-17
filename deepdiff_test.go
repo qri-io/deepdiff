@@ -262,31 +262,6 @@ func TestChangeDiffs(t *testing.T) {
 	RunTestCases(t, cases, func(c *Config) { c.Changes = true })
 }
 
-func TestMoveDiffs(t *testing.T) {
-	cases := []TestCase{
-		{
-			"different parent move array",
-			`[[1],[2],[3]]`,
-			`[[1],[2,[3]]]`,
-			Deltas{
-				{Type: DTMove, SourcePath: "/2", Path: "/1/1", SourceValue: []interface{}{float64(3)}, Value: []interface{}{float64(3)}},
-			},
-		},
-		{
-			"same parent move array",
-			`[[1],[2],[3]]`,
-			`[[1],[3],[2]]`,
-			Deltas{
-				{Type: DTMove, SourcePath: "/2", Path: "/1", Value: []interface{}{float64(3)}},
-			},
-		},
-	}
-	RunTestCases(t, cases, func(o *Config) {
-		o.Changes = true
-		o.MoveDeltas = true
-	})
-}
-
 func TestInsertGeneralizing(t *testing.T) {
 	cases := []TestCase{
 		{
