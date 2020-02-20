@@ -225,6 +225,23 @@ func TestBasicDiffing(t *testing.T) {
 				{Type: DTContext, Path: "c", Value: []interface{}{float64(3)}},
 			},
 		},
+
+		// TODO (b5) - another problematic diff case
+		// {
+		// 	"diff object and array children",
+		// 	`{"a":[0,1,2], "b": true }`,
+		// 	`{"a":{"foo": [0,1,2] }, "b": false }`,
+		// 	Deltas{},
+		// },
+
+		// TODO (b5) - I think this should be an error. These inputs don't share a
+		// common root data type
+		// {
+		// 	"object-to-array root",
+		// 	`[ [1,2,3], [4,5,6], [7,8,9] ]`,
+		// 	`{ "foo": [1,2,3], "baz": { "bat": [false]}}`,
+		// 	Deltas{},
+		// },
 	}
 
 	RunTestCases(t, cases)
@@ -313,6 +330,19 @@ func TestInsertGeneralizing(t *testing.T) {
 		// 		},
 		// 	},
 		// },
+	}
+
+	RunTestCases(t, cases)
+}
+
+func TestObjectAndArrayConversion(t *testing.T) {
+	cases := []TestCase{
+		{
+			"large structure overflow",
+			`{ "qri": "ds:0" }`,
+			`[ ["rank","probability_of_automation","soc_code","job_title"] ]`,
+			Deltas{},
+		},
 	}
 
 	RunTestCases(t, cases)

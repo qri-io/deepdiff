@@ -461,7 +461,7 @@ func nodeAtPath(tree node, path []string) (n node) {
 }
 
 func addNode(tree, toAdd node, paths []string) {
-	if cmp, ok := tree.(compound); ok {
+	if cmp, ok := tree.(compound); ok && len(paths) > 0 {
 		for _, name := range paths[:len(paths)-1] {
 			tree = cmp.Child(name)
 			if tree == nil {

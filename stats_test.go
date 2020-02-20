@@ -28,7 +28,6 @@ func TestCalcStats(t *testing.T) {
 		Inserts:     4,
 		Updates:     0,
 		Deletes:     4,
-		Moves:       0,
 	}
 
 	got, err := New().Stat(context.Background(), a, b)
