@@ -3,7 +3,6 @@ package deepdiff
 import (
 	"fmt"
 	"reflect"
-	"strconv"
 )
 
 // Patch applies a change script (patch) to a value
@@ -68,18 +67,18 @@ func patch(target reflect.Value, delta *Delta) (reflect.Value, error) {
 	return target, err
 }
 
-func set(target, value reflect.Value, key string) (reflect.Value, error) {
+func set(target, value reflect.Value, addr Addr) (reflect.Value, error) {
 	if target.Kind() == reflect.Interface || target.Kind() == reflect.Ptr {
 		target = target.Elem()
 	}
 
 	switch target.Kind() {
 	case reflect.Map:
-		target.SetMapIndex(reflect.ValueOf(key), value)
+		target.SetMapIndex(reflect.ValueOf(addr.Value()), value)
 	case reflect.Slice:
-		i, err := strconv.Atoi(key)
-		if err != nil {
-			panic(err)
+		i, ok := addr.Value().(int)
+		if !ok {
+			panic("non-int value for slice address")
 		}
 		l := target.Len()
 		sl := reflect.MakeSlice(target.Type(), 0, l)
@@ -95,7 +94,7 @@ func set(target, value reflect.Value, key string) (reflect.Value, error) {
 	return target, nil
 }
 
-func remove(target reflect.Value, key string) (reflect.Value, error) {
+func remove(target reflect.Value, addr Addr) (reflect.Value, error) {
 	if target.Kind() == reflect.Interface || target.Kind() == reflect.Ptr {
 		target = target.Elem()
 	}
@@ -103,11 +102,11 @@ func remove(target reflect.Value, key string) (reflect.Value, error) {
 	switch target.Kind() {
 	case reflect.Map:
 		// SetMapIndex expects a zero value for reflect.Value itself to delete a key
-		target.SetMapIndex(reflect.ValueOf(key), reflect.Value{})
+		target.SetMapIndex(reflect.ValueOf(addr.Value()), reflect.Value{})
 	case reflect.Slice:
-		i, err := strconv.Atoi(key)
-		if err != nil {
-			panic(err)
+		i, ok := addr.Value().(int)
+		if !ok {
+			panic("non-int value for slice address")
 		}
 		l := target.Len()
 		sl := reflect.MakeSlice(target.Type(), 0, l)
@@ -120,18 +119,18 @@ func remove(target reflect.Value, key string) (reflect.Value, error) {
 	return target, nil
 }
 
-func insert(target, value reflect.Value, key string) (reflect.Value, error) {
+func insert(target, value reflect.Value, addr Addr) (reflect.Value, error) {
 	if target.Kind() == reflect.Interface || target.Kind() == reflect.Ptr {
 		target = target.Elem()
 	}
 
 	switch target.Kind() {
 	case reflect.Map:
-		target.SetMapIndex(reflect.ValueOf(key), value)
+		target.SetMapIndex(reflect.ValueOf(addr.Value()), value)
 	case reflect.Slice:
-		i, err := strconv.Atoi(key)
-		if err != nil {
-			panic(err)
+		i, ok := addr.Value().(int)
+		if !ok {
+			panic("non-int value for slice address")
 		}
 		l := target.Len()
 		sl := reflect.MakeSlice(target.Type(), 0, l)
@@ -145,18 +144,18 @@ func insert(target, value reflect.Value, key string) (reflect.Value, error) {
 	return target, nil
 }
 
-func child(target reflect.Value, key string) reflect.Value {
+func child(target reflect.Value, addr Addr) reflect.Value {
 	if target.Kind() == reflect.Interface || target.Kind() == reflect.Ptr {
 		target = target.Elem()
 	}
 
 	switch target.Kind() {
 	case reflect.Map:
-		target = target.MapIndex(reflect.ValueOf(key))
+		target = target.MapIndex(reflect.ValueOf(addr.Value()))
 	case reflect.Slice:
-		i, err := strconv.Atoi(key)
-		if err != nil {
-			panic(err)
+		i, ok := addr.Value().(int)
+		if !ok {
+			panic("can't patch slice with non-int address value")
 		}
 		target = target.Index(i)
 	}
@@ -164,25 +163,25 @@ func child(target reflect.Value, key string) reflect.Value {
 	return target
 }
 
-func descendant(target reflect.Value, keys []string) reflect.Value {
-	if len(keys) == 0 {
+func descendant(target reflect.Value, path []Addr) reflect.Value {
+	if len(path) == 0 {
 		return target
 	}
 
-	for _, key := range keys {
+	for _, addr := range path {
 		if target.Kind() == reflect.Interface || target.Kind() == reflect.Ptr {
 			target = target.Elem()
 		}
 
 		switch target.Kind() {
 		case reflect.Map:
-			target = target.MapIndex(reflect.ValueOf(key))
+			target = target.MapIndex(reflect.ValueOf(addr.Value()))
 		case reflect.Slice:
-			i, err := strconv.Atoi(key)
-			if err != nil {
-				panic(err)
-			}
-			target = target.Index(i)
+			i, ok := addr.Value().(int)
+		if !ok {
+			panic("can't patch slice with non-int address value")
+		}
+		target = target.Index(i)
 		}
 	}
 	return target

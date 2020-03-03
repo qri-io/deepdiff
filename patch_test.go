@@ -18,57 +18,57 @@ func TestPatch(t *testing.T) {
 			"update bool",
 			[]interface{}{true},
 			[]interface{}{false},
-			Deltas{{Type: DTUpdate, Path: "0", Value: false}},
+			Deltas{{Type: DTUpdate, Path: IndexAddr(0), Value: false}},
 		},
 		{
 			"update number",
 			[]interface{}{float64(1)},
 			[]interface{}{float64(2)},
-			Deltas{{Type: DTUpdate, Path: "0", Value: float64(2)}},
+			Deltas{{Type: DTUpdate, Path: IndexAddr(0), Value: float64(2)}},
 		},
 		{
 			"update nested number",
 			map[string]interface{}{"a": []interface{}{float64(1)}},
 			map[string]interface{}{"a": []interface{}{float64(2)}},
-			Deltas{{Type: DTContext, Path: "a", Deltas: Deltas{
-				{Type: DTUpdate, Path: "0", Value: float64(2)}},
+			Deltas{{Type: DTContext, Path: StringAddr("a"), Deltas: Deltas{
+				{Type: DTUpdate, Path: IndexAddr(0), Value: float64(2)}},
 			}},
 		},
 		{
 			"update string",
 			[]interface{}{"before"},
 			[]interface{}{"after"},
-			Deltas{{Type: DTUpdate, Path: "0", Value: "after"}},
+			Deltas{{Type: DTUpdate, Path: IndexAddr(0), Value: "after"}},
 		},
 		{
 			"insert number to end of array",
 			[]interface{}{},
 			[]interface{}{float64(1)},
-			Deltas{{Type: DTInsert, Path: "0", Value: float64(1)}},
+			Deltas{{Type: DTInsert, Path: IndexAddr(0), Value: float64(1)}},
 		},
 		{
 			"insert number in slice",
 			[]interface{}{float64(0), float64(2)},
 			[]interface{}{float64(0), float64(1), float64(2)},
 			Deltas{
-				{Type: DTContext, Path: "0", Value: float64(0)},
-				{Type: DTInsert, Path: "1", Value: float64(1)},
+				{Type: DTContext, Path: IndexAddr(0), Value: float64(0)},
+				{Type: DTInsert, Path: IndexAddr(1), Value: float64(1)},
 			},
 		},
 		{
 			"insert false into object",
 			map[string]interface{}{},
 			map[string]interface{}{"a": false},
-			Deltas{{Type: DTInsert, Path: "a", Value: false}},
+			Deltas{{Type: DTInsert, Path: StringAddr("a"), Value: false}},
 		},
 		{
 			"delete from end of array",
 			[]interface{}{"a", "b", "c"},
 			[]interface{}{"a", "b"},
 			Deltas{
-				{Type: DTContext, Path: "0", Value: "a"},
-				{Type: DTContext, Path: "1", Value: "b"},
-				{Type: DTDelete, Path: "2", Value: "c"},
+				{Type: DTContext, Path: IndexAddr(0), Value: "a"},
+				{Type: DTContext, Path: IndexAddr(1), Value: "b"},
+				{Type: DTDelete, Path: IndexAddr(2), Value: "c"},
 			},
 		},
 		{
@@ -76,9 +76,9 @@ func TestPatch(t *testing.T) {
 			[]interface{}{"a", "b", "c"},
 			[]interface{}{"a", "c"},
 			Deltas{
-				{Type: DTContext, Path: "0", Value: "a"},
-				{Type: DTDelete, Path: "1", Value: "b"},
-				{Type: DTContext, Path: "1", Value: "c"},
+				{Type: DTContext, Path: IndexAddr(0), Value: "a"},
+				{Type: DTDelete, Path: IndexAddr(1), Value: "b"},
+				{Type: DTContext, Path: IndexAddr(1), Value: "c"},
 			},
 		},
 		{
@@ -86,7 +86,7 @@ func TestPatch(t *testing.T) {
 			map[string]interface{}{"a": false},
 			map[string]interface{}{},
 			Deltas{
-				{Type: DTDelete, Path: "a"},
+				{Type: DTDelete, Path: StringAddr("a")},
 			},
 		},
 		{
@@ -104,9 +104,9 @@ func TestPatch(t *testing.T) {
 				},
 			},
 			Deltas{
-				{Type: DTContext, Path: "a", Deltas: Deltas{
-					{Type: DTContext, Path: "0", Deltas: Deltas{
-						{Type: DTDelete, Path: "b"},
+				{Type: DTContext, Path: StringAddr("a"), Deltas: Deltas{
+					{Type: DTContext, Path: IndexAddr(0), Deltas: Deltas{
+						{Type: DTDelete, Path: StringAddr("b")},
 					}},
 				}},
 			},
@@ -116,9 +116,9 @@ func TestPatch(t *testing.T) {
 			map[string]interface{}{"a": true, "b": float64(2)},
 			map[string]interface{}{"a": false, "c": float64(3)},
 			Deltas{
-				{Type: DTInsert, Path: "c", Value: float64(3)},
-				{Type: DTUpdate, Path: "a", Value: false},
-				{Type: DTDelete, Path: "b", Value: false},
+				{Type: DTInsert, Path: StringAddr("c"), Value: float64(3)},
+				{Type: DTUpdate, Path: StringAddr("a"), Value: false},
+				{Type: DTDelete, Path: StringAddr("b"), Value: false},
 			},
 		},
 
@@ -127,8 +127,8 @@ func TestPatch(t *testing.T) {
 			map[string]interface{}{"a": []interface{}{false, "yep"}, "b": true},
 			map[string]interface{}{"a": []interface{}{"yep"}, "b": true},
 			Deltas{
-				{Type: DTContext, Path: "a", Deltas: Deltas{
-					{Type: DTDelete, Path: "0", Value: false},
+				{Type: DTContext, Path: StringAddr("a"), Deltas: Deltas{
+					{Type: DTDelete, Path: IndexAddr(0), Value: false},
 				}},
 			},
 		},

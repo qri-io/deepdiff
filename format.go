@@ -61,7 +61,7 @@ func formatPretty(w io.Writer, changes Deltas, indent int, colorMap map[Operatio
 	return nil
 }
 
-// DiffStat prints a string of stats info
+// FormatPrettyStatsString prints a string of stats info
 func FormatPrettyStatsString(diffStat *Stats, colorTTY bool) string {
 	buf := &bytes.Buffer{}
 	FormatPrettyStats(buf, diffStat, colorTTY)

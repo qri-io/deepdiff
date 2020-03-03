@@ -2,6 +2,7 @@ package deepdiff
 
 import (
 	"encoding/json"
+	"strconv"
 )
 
 // Operation defines the operation of a Delta item
@@ -21,6 +22,108 @@ const (
 	DTUpdate = Operation("~")
 )
 
+// Addr is a single location within a data structure. Multiple path elements can
+// be stitched together into a single
+type Addr interface {
+	json.Marshaler
+	Value() interface{}
+	String() string
+	Eq(a Addr) bool
+}
+
+// StringAddr is an arbitrary key representation within a data structure.
+// Most-often used to represent map keys
+type StringAddr string
+
+// Value returns StringAddr as a string, a common go type
+func (p StringAddr) Value() interface{} {
+	return string(p)
+}
+
+// String returns this address as a string
+func (p StringAddr) String() string {
+	return string(p)
+}
+
+// Eq tests for equality with another address
+func (p StringAddr) Eq(b Addr) bool {
+	sa, ok := b.(StringAddr)
+	if !ok {
+		return false
+	}
+
+	return p == sa
+}
+
+// MarshalJSON implements the json.Marshaller interface
+func (p StringAddr) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(p))
+}
+
+// IndexAddr is the address of a location within list-type structures
+type IndexAddr int
+
+// Value returns IndexAddr as an int, a common go type
+func (p IndexAddr) Value() interface{} {
+	return int(p)
+}
+
+// String returns this address as a string
+func (p IndexAddr) String() string {
+	return strconv.Itoa(int(p))
+}
+
+// Eq tests for equality with another address
+func (p IndexAddr) Eq(b Addr) bool {
+	sa, ok := b.(IndexAddr)
+	if !ok {
+		return false
+	}
+
+	return p == sa
+}
+
+// MarshalJSON implements the json.Marshaller interface
+func (p IndexAddr) MarshalJSON() ([]byte, error) {
+	return json.Marshal(int(p))
+}
+
+// RootAddr is a nihlic address, or a reference to the outside address space
+type RootAddr struct{}
+
+// Value of RootAddr is nil
+func (RootAddr) Value() interface{} {
+	return nil
+}
+
+// String root address is "/" by convention
+func (RootAddr) String() string {
+	return "/"
+}
+
+// Eq checks for Root Address equality
+func (RootAddr) Eq(b Addr) bool {
+	_, ok := b.(RootAddr)
+	if !ok {
+		return false
+	}
+
+	return true
+}
+
+// MarshalJSON writes "null". RootAddress is represented as null in JSON
+func (RootAddr) MarshalJSON() ([]byte, error) {
+	return json.Marshal(nil)
+}
+
+type sortableAddrs []Addr
+
+func (a sortableAddrs) Len() int { return len(a) }
+func (a sortableAddrs) Less(i,j int) bool { return a[i].String() < a[j].String() }
+func (a sortableAddrs) Swap(i,j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
 // Delta represents a change between a source & destination document
 // a delta is a single "edit" that describes changes to the destination document
 type Delta struct {
@@ -30,7 +133,7 @@ type Delta struct {
 	// begins in the destination documents
 	// path should conform to the IETF JSON-pointer specification, outlined
 	// in RFC 6901: https://tools.ietf.org/html/rfc6901
-	Path string `json:"path"`
+	Path Addr `json:"path"`
 	// The value to change in the destination document
 	Value interface{} `json:"value"`
 
@@ -73,7 +176,9 @@ var opOrder = map[Operation]uint{
 // Less returns trus if the value at index i is a smaller sort quantity than
 // the value at index j
 func (ds Deltas) Less(i, j int) bool {
-	return ds[i].Path < ds[j].Path || (ds[i].Path == ds[j].Path && opOrder[ds[i].Type] < opOrder[ds[j].Type])
+	iAddr := ds[i].Path.String()
+	jAddr := ds[j].Path.String()
+	return iAddr < jAddr || (iAddr == jAddr && opOrder[ds[i].Type] < opOrder[ds[j].Type])
 }
 
 // Swap reverses the values at indicies i & J
