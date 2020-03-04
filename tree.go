@@ -400,7 +400,7 @@ func path(n node) []Addr {
 
 // walk a tree in top-down (prefix) order
 func walk(tree node, path []Addr, fn func(path []Addr, n node) bool) {
-	if tree.Addr().String() != "" {
+	if !tree.Addr().Eq(RootAddr{}) {
 		path = append(path, tree.Addr())
 	}
 	kontinue := fn(path, tree)
@@ -414,7 +414,7 @@ func walk(tree node, path []Addr, fn func(path []Addr, n node) bool) {
 // walk a tree in top-down (prefix) order, sorting array keys before recursing.
 // more expensive
 func walkSorted(tree node, path []Addr, fn func(path []Addr, n node) bool) {
-	if tree.Addr().Value() != nil {
+	if !tree.Addr().Eq(RootAddr{}) {
 		path = append(path, tree.Addr())
 	}
 
@@ -431,7 +431,7 @@ func walkSorted(tree node, path []Addr, fn func(path []Addr, n node) bool) {
 
 // walk a tree in bottom up (postfix) order
 func walkPostfix(tree node, path []Addr, fn func(path []Addr, n node)) {
-	if tree.Addr().Value() != nil {
+	if !tree.Addr().Eq(RootAddr{}) {
 		path = append(path, tree.Addr())
 	}
 	if cmp, ok := tree.(compound); ok {

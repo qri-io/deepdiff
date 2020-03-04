@@ -335,6 +335,58 @@ func TestInsertGeneralizing(t *testing.T) {
 	RunTestCases(t, cases)
 }
 
+func TestNestedScalar(t *testing.T) {
+	cases := []TestCase{
+		// {
+		// 	"single nested scalar change no scalar matches",
+		// 	`{ "structure": { "formatConfig": { "headerRow": false }}}`,
+		// 	`{ "structure": { "formatConfig": { "headerRow": true }}}`,
+		// 	Deltas{
+		// 		{Type: DTDelete, Path: RootAddr{}, Value: map[string]interface{}{
+		// 			"structure" : map[string]interface{}{
+		// 				"formatConfig": map[string]interface{}{
+		// 					"headerRow": false,
+		// 				},
+		// 			},
+		// 		}},
+		// 		{Type: DTInsert, Path: RootAddr{}, Value: map[string]interface{}{
+		// 			"structure" : map[string]interface{}{
+		// 				"formatConfig": map[string]interface{}{
+		// 					"headerRow": true,
+		// 				},
+		// 			},
+		// 		}},
+		// 		// {Type: DTContext, Path: StringAddr("structure"), Deltas: Deltas{
+		// 		// 	{ Type: DTContext, Path: StringAddr("formatConfig"), Deltas: Deltas{
+		// 		// 		{Type: DTDelete, Path: StringAddr("headerRow"), Value: false },
+		// 		// 		{Type: DTInsert, Path: StringAddr("headerRow"), Value: true },
+		// 		// 	}},
+		// 		// }},
+		// 	},
+		// },
+		{
+			"single nested scalar change one scalar match",
+			`{ "qri": "ds:0",  "structure": { "formatConfig": { "headerRow": false }}}`,
+			`{ "qri": "ds:0", "structure": { "formatConfig": { "headerRow": true }}}`,
+			Deltas{
+				{Type: DTContext, Path: StringAddr("qri"), Value: "ds:0"},
+				{Type: DTContext, Path: StringAddr("structure"), Deltas: Deltas{
+					{Type: DTContext, Path: StringAddr("formatConfig"), Deltas: Deltas{
+						{Type: DTDelete, Path: StringAddr("headerRow"), Value: false },
+						{Type: DTInsert, Path: StringAddr("headerRow"), Value: true },
+					}},
+				}},
+			},
+		},
+	}
+
+	RunTestCases(t, cases)
+
+	aJSON := `{ "qri": "ds:0",  "structure": { "formatConfig": { "headerRow": false }}}`
+	bJSON := `{ "qri": "ds:0", "structure": { "formatConfig": { "headerRow": true }}}`
+	makeDotGraph(aJSON, bJSON, "testdata/graphs/nested_scalar")
+}
+
 func TestRootChanges(t *testing.T) {
 	t.Skip("TODO (b5) - fix this with 'null' as the position indicator for root object changes")
 
@@ -352,27 +404,7 @@ func TestRootChanges(t *testing.T) {
 	var aJSON = `{ "qri": "ds:0" }`
 	var bJSON = `[ "ds:0", ["rank","probability_of_automation","soc_code","job_title"] ]`
 
-	var a interface{}
-	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
-		panic(err)
-	}
-
-	var b interface{}
-	if err := json.Unmarshal([]byte(bJSON), &b); err != nil {
-		panic(err)
-	}
-
-	d := &diff{d1: a, d2: b}
-	d.t1, d.t2, d.t1Nodes = d.prepTrees(context.Background())
-	d.queueMatch(d.t1Nodes, d.t2)
-	d.optimize(d.t1, d.t2)
-
-	buf := dotGraphTree(d)
-	ioutil.WriteFile("testdata/graph_2.dot", buf.Bytes(), os.ModePerm)
-
-	delts := d.calcDeltas(d.t1, d.t2)
-	deltas, _ := json.MarshalIndent(delts, "  ", "")
-	t.Log(string(deltas))
+	makeDotGraph(aJSON, bJSON, "testdata/graphs/root_changes_graph")
 }
 
 func TestDiffDotGraph(t *testing.T) {
@@ -406,6 +438,10 @@ func TestDiffDotGraph(t *testing.T) {
 		}
 	}`
 
+	makeDotGraph(aJSON, bJSON, "testdata/graphs/diff_graph_1")
+}
+
+func makeDotGraph(aJSON, bJSON, filename string) {
 	var a interface{}
 	if err := json.Unmarshal([]byte(aJSON), &a); err != nil {
 		panic(err)
@@ -422,7 +458,11 @@ func TestDiffDotGraph(t *testing.T) {
 	d.optimize(d.t1, d.t2)
 
 	buf := dotGraphTree(d)
-	ioutil.WriteFile("testdata/graph.dot", buf.Bytes(), os.ModePerm)
+	ioutil.WriteFile(fmt.Sprintf("%s.dot", filename), buf.Bytes(), os.ModePerm)
+
+	delts := d.calcDeltas(d.t1, d.t2)
+	deltas, _ := json.MarshalIndent(delts, "  ", "")
+	ioutil.WriteFile(fmt.Sprintf("%s.deltas.json", filename), deltas, os.ModePerm)
 }
 
 func pathString(addrs []Addr) string {
@@ -567,81 +607,81 @@ func TestDiffStats(t *testing.T) {
 	}
 }
 
-// func BenchmarkDiff1(b *testing.B) {
-// 	srcData := `{
-// 		"foo" : {
-// 			"bar" : [1,2,3]
-// 		},
-// 		"baz" : [4,5,6],
-// 		"bat" : false
-// 	}`
+func BenchmarkDiff1(b *testing.B) {
+	srcData := `{
+		"foo" : {
+			"bar" : [1,2,3]
+		},
+		"baz" : [4,5,6],
+		"bat" : false
+	}`
 
-// 	dstData := `{
-// 		"baz" : [7,8,9],
-// 		"bat" : true,
-// 		"champ" : {
-// 			"bar" : [1,2,3]
-// 		}
-// 	}`
+	dstData := `{
+		"baz" : [7,8,9],
+		"bat" : true,
+		"champ" : {
+			"bar" : [1,2,3]
+		}
+	}`
 
-// 	var (
-// 		src, dst interface{}
-// 		ctx      = context.Background()
-// 		dd       = New()
-// 	)
-// 	if err := json.Unmarshal([]byte(srcData), &src); err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	if err := json.Unmarshal([]byte(dstData), &dst); err != nil {
-// 		b.Fatal(err)
-// 	}
+	var (
+		src, dst interface{}
+		ctx      = context.Background()
+		dd       = New()
+	)
+	if err := json.Unmarshal([]byte(srcData), &src); err != nil {
+		b.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(dstData), &dst); err != nil {
+		b.Fatal(err)
+	}
 
-// 	for n := 0; n < b.N; n++ {
-// 		dd.Diff(ctx, src, dst)
-// 	}
-// }
+	for n := 0; n < b.N; n++ {
+		dd.Diff(ctx, src, dst)
+	}
+}
 
-// func BenchmarkDiffDatasets(b *testing.B) {
-// 	var (
-// 		diff  = New()
-// 		data1 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmbwJNx88xNknXYewLCVBVJqbZ5oaiffr4WYDoCJAuCZ93","qri":"cm:0","signature":"TUREFCfoKEf5J189c0jdKfleRYsGZm8Q6sm6g6lJctXGDDM8BGdpSVjMltGTmmrtN6qtQJKRail5ceG325Rb8hLYoMe4926gXZNWBlMfD0yBHSjo81LsE25UqVeloU2W19Z1MNOrLTDPDRBoM0g3vyJLykGQ0UPRqpUvXNod0E5ONZOKGrQpByp113h12yiAjsiCBR6sAfIScNpcyjzkiDhBCCbMy9cGfMVK8q7wNCmcC41zguGhvv1biDoE+MEVDc1QPN1dYeEaDsvaRu5jWSv44zhVdC3lZtlT8R9qArk8OQVW798ctQ6NJ5kCiZ3C6Z19VPrptr85oknoNNaYxA==","timestamp":"2019-02-04T14:26:43.158109Z","title":"created dataset"},"name":"test_1","path":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj/dataset.json","peername":"b5","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
-// 		data2 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmVZrXZ2d6DF11BL7QLJ8AYFYaNiLgAWVEshZ3HB5ogZJS","qri":"cm:0","signature":"CppvSyFkaLNIY3lIOGxq7ybA18ZzJbgrF7XrIgrxi7pwKB3RGjriaCqaqTGNMTkdJCATN/qs/Yq4IIbpHlapIiwfzVHFUO8m0a2+wW0DHI+y1HYsRvhg3+LFIGHtm4M+hqcDZg9EbNk8weZI+Q+FPKk6VjPKpGtO+JHV+nEFovFPjS4XMMoyuJ96KiAEeZISuF4dN2CDSV+WC93sMhdPPAQJJZjZX+3cc/fOaghOkuhedXaA0poTVJQ05aAp94DyljEnysuS7I+jfNrsE/6XhtazZnOSYX7e0r1PJwD7OdoZYRH73HnDk+Q9wg6RrpU7EehF39o4UywyNGAI5yJkxg==","timestamp":"2019-02-11T17:50:20.501283Z","title":"forced update"},"name":"test_1","path":"/ipfs/QmaAuKZezio5knAFXU4krPcZfBWHnHDWWKEX32Ne9v6niQ/dataset.json","peername":"b5","previousPath":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
-// 		t1    interface{}
-// 		t2    interface{}
-// 		ctx   = context.Background()
-// 	)
-// 	if err := json.Unmarshal(data1, &t1); err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	if err := json.Unmarshal(data2, &t2); err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	for i := 0; i < b.N; i++ {
-// 		diff.Diff(ctx, t1, t2)
-// 	}
-// }
+func BenchmarkDiffDatasets(b *testing.B) {
+	var (
+		diff  = New()
+		data1 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmbwJNx88xNknXYewLCVBVJqbZ5oaiffr4WYDoCJAuCZ93","qri":"cm:0","signature":"TUREFCfoKEf5J189c0jdKfleRYsGZm8Q6sm6g6lJctXGDDM8BGdpSVjMltGTmmrtN6qtQJKRail5ceG325Rb8hLYoMe4926gXZNWBlMfD0yBHSjo81LsE25UqVeloU2W19Z1MNOrLTDPDRBoM0g3vyJLykGQ0UPRqpUvXNod0E5ONZOKGrQpByp113h12yiAjsiCBR6sAfIScNpcyjzkiDhBCCbMy9cGfMVK8q7wNCmcC41zguGhvv1biDoE+MEVDc1QPN1dYeEaDsvaRu5jWSv44zhVdC3lZtlT8R9qArk8OQVW798ctQ6NJ5kCiZ3C6Z19VPrptr85oknoNNaYxA==","timestamp":"2019-02-04T14:26:43.158109Z","title":"created dataset"},"name":"test_1","path":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj/dataset.json","peername":"b5","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
+		data2 = []byte(`{"body":[["a","b","c","d"],["1","2","3","4"],["e","f","g","h"]],"bodyPath":"/ipfs/QmP2tdkqc4RhSDGv1KSWoJw1pwzNu6HzMcYZaVFkLN9PMc","commit":{"author":{"id":"QmSyDX5LYTiwQi861F5NAwdHrrnd1iRGsoEvCyzQMUyZ4W"},"path":"/ipfs/QmVZrXZ2d6DF11BL7QLJ8AYFYaNiLgAWVEshZ3HB5ogZJS","qri":"cm:0","signature":"CppvSyFkaLNIY3lIOGxq7ybA18ZzJbgrF7XrIgrxi7pwKB3RGjriaCqaqTGNMTkdJCATN/qs/Yq4IIbpHlapIiwfzVHFUO8m0a2+wW0DHI+y1HYsRvhg3+LFIGHtm4M+hqcDZg9EbNk8weZI+Q+FPKk6VjPKpGtO+JHV+nEFovFPjS4XMMoyuJ96KiAEeZISuF4dN2CDSV+WC93sMhdPPAQJJZjZX+3cc/fOaghOkuhedXaA0poTVJQ05aAp94DyljEnysuS7I+jfNrsE/6XhtazZnOSYX7e0r1PJwD7OdoZYRH73HnDk+Q9wg6RrpU7EehF39o4UywyNGAI5yJkxg==","timestamp":"2019-02-11T17:50:20.501283Z","title":"forced update"},"name":"test_1","path":"/ipfs/QmaAuKZezio5knAFXU4krPcZfBWHnHDWWKEX32Ne9v6niQ/dataset.json","peername":"b5","previousPath":"/ipfs/QmeSYBYd3LVsFPRp1jiXgT8q22Md3R7swUzd9yt7MPVUcj","qri":"ds:0","structure":{"depth":2,"errCount":0,"format":"json","qri":"st:0","schema":{"type":"array"}}}`)
+		t1    interface{}
+		t2    interface{}
+		ctx   = context.Background()
+	)
+	if err := json.Unmarshal(data1, &t1); err != nil {
+		b.Fatal(err)
+	}
+	if err := json.Unmarshal(data2, &t2); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		diff.Diff(ctx, t1, t2)
+	}
+}
 
-// func BenchmarkDiff5MB(b *testing.B) {
-// 	diff := New()
-// 	ctx := context.Background()
+func BenchmarkDiff5MB(b *testing.B) {
+	diff := New()
+	ctx := context.Background()
 
-// 	f1, err := os.Open("testdata/airport_codes.json")
-// 	if err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	var t1 map[string]interface{}
-// 	if err := json.NewDecoder(f1).Decode(&t1); err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	f2, err := os.Open("testdata/airport_codes_2.json")
-// 	if err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	var t2 map[string]interface{}
-// 	if err := json.NewDecoder(f2).Decode(&t2); err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	for i := 0; i < b.N; i++ {
-// 		diff.Diff(ctx, t1, t2)
-// 	}
-// }
+	f1, err := os.Open("testdata/airport_codes.json")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var t1 map[string]interface{}
+	if err := json.NewDecoder(f1).Decode(&t1); err != nil {
+		b.Fatal(err)
+	}
+	f2, err := os.Open("testdata/airport_codes_2.json")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var t2 map[string]interface{}
+	if err := json.NewDecoder(f2).Decode(&t2); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		diff.Diff(ctx, t1, t2)
+	}
+}

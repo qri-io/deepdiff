@@ -98,7 +98,7 @@ func (d *diff) diff(ctx context.Context) Deltas {
 	d.t1, d.t2, d.t1Nodes = d.prepTrees(ctx)
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
-	// TODO (b5): a second optimize pass seems to help greatly on larger diffs, which
+	// TODO (b5): a second optimize pass seems to help on larger diffs, which
 	// to me seems we should propagating matches more aggressively in the optimize pass,
 	// removing the need for this second call (which is effectively doing the same
 	// thing as recursive/aggressive match propagation)
@@ -134,7 +134,6 @@ func (d *diff) queueMatch(t1Nodes map[string][]node, t2 node) {
 			key := hashStr(n2.Hash())
 
 			candidates = t1Nodes[key]
-
 			switch len(candidates) {
 			case 0:
 				// no candidates. check if node has children. If so, add them.
@@ -177,7 +176,7 @@ func matchNodes(n1, n2 node) {
 	n1p := n1.Parent()
 	n2p := n2.Parent()
 	for n1p != nil && n2p != nil {
-		if n1p.Addr().Eq(n2p.Addr()) && n1p.Addr().String() != "" && n2p.Addr().String() != "" {
+		if n1p.Addr().Eq(n2p.Addr()) {
 			n1p.SetMatch(n2p)
 			n2p.SetMatch(n1p)
 			n1p = n1p.Parent()
@@ -261,6 +260,7 @@ func propagateMatchToChildren(n node) {
 				for _, n1ch := range n1.Children() {
 					if n2ch := n2.Child(n1ch.Addr()); n2ch != nil {
 						n2ch.SetMatch(n1ch)
+						n1ch.SetMatch(n2ch)
 					}
 				}
 			}
@@ -280,7 +280,6 @@ func propagateMatchToChildren(n node) {
 // calculate inserts, deletes, and maybe changes by folding tree A into
 // tree B, adding unmatched nodes from A to B as deletes
 func (d *diff) calcDeltas(t1, t2 node) (dts Deltas) {
-
 	// fold t1 into t2, adding deletes to t2
 	walkSorted(t1, nil, func(p []Addr, n node) bool {
 		if n.Match() == nil {
@@ -389,7 +388,17 @@ func (d *diff) calcDeltas(t1, t2 node) (dts Deltas) {
 		return true
 	})
 
-	script, _ := d.childDeltas(t2.(compound))
+	// special case where root elements aren't matched. If this happends t1 root
+	// will never be considered
+	var script Deltas
+	if t2.Match() == nil {
+		del := toDelta(t1)
+		ins := toDelta(t2)
+		script = Deltas{del, ins}
+	} else {
+		script, _ = d.childDeltas(t2.(compound))
+	}
+
 	sortDeltasAndMaybeCalcStats(script, d.stats)
 
 	return script
@@ -397,12 +406,12 @@ func (d *diff) calcDeltas(t1, t2 node) (dts Deltas) {
 
 func (d *diff) childDeltas(cmp compound) (changes Deltas, hasChanges bool) {
 	ch := cmp.Children()
-
 	for _, n := range ch {
 		dlt := toDelta(n)
 		if dlt.Type == DTContext {
 			if childCmp, ok := n.(compound); ok {
-				if children, hasChanges := d.childDeltas(childCmp); hasChanges {
+				if children, childChanges := d.childDeltas(childCmp); childChanges {
+					hasChanges = true
 					dlt.Value = nil
 					dlt.Deltas = children
 				}

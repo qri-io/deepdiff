@@ -1,0 +1,31 @@
+[
+  [
+  " ",
+  "qri",
+  "ds:0"
+  ],
+  [
+  " ",
+  "structure",
+  null,
+  [
+  [
+  " ",
+  "formatConfig",
+  null,
+  [
+  [
+  "-",
+  "headerRow",
+  false
+  ],
+  [
+  "+",
+  "headerRow",
+  true
+  ]
+  ]
+  ]
+  ]
+  ]
+  ]

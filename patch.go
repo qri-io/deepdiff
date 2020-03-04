@@ -99,6 +99,12 @@ func remove(target reflect.Value, addr Addr) (reflect.Value, error) {
 		target = target.Elem()
 	}
 
+	// root returns nil value, which is a total replace
+	if addr.Value() == nil {
+		// TODO (b5) - pass a real nil value here
+		return reflect.ValueOf(map[string]interface{}{}), nil
+	}
+
 	switch target.Kind() {
 	case reflect.Map:
 		// SetMapIndex expects a zero value for reflect.Value itself to delete a key
@@ -122,6 +128,11 @@ func remove(target reflect.Value, addr Addr) (reflect.Value, error) {
 func insert(target, value reflect.Value, addr Addr) (reflect.Value, error) {
 	if target.Kind() == reflect.Interface || target.Kind() == reflect.Ptr {
 		target = target.Elem()
+	}
+
+	// root returns nil value, which is a total replace
+	if addr.Value() == nil {
+		return value, nil
 	}
 
 	switch target.Kind() {
