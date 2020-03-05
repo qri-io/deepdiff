@@ -113,9 +113,8 @@ func main() {
 		panic(err)
 	}
 
-	// Diff will use default configuration to produce a slice of Deltas
-	// that describe the structured changes. by default Diff will not calculate
-	// moves, only inserts, deletes, and updates
+	// Diff will use default configuration to produce a slice of Changes
+	// by default Diff will not generate update change only inserts & deletes
 	diffs, err := deepdiff.Diff(a, b)
 	if err != nil {
 		panic(err)
