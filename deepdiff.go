@@ -11,9 +11,9 @@ import (
 
 // Config are any possible configuration parameters for calculating diffs
 type Config struct {
-	// Setting Changes to true will have diff represent in-place value shifts
+	// Setting CalcChanges to true will have diff represent in-place value shifts
 	// as changes instead of add-delete pairs
-	Changes bool
+	CalcChanges bool
 }
 
 // DiffOption is a function that adjust a config, zero or more DiffOptions
@@ -33,7 +33,7 @@ func New(opts ...DiffOption) *DeepDiff {
 	}
 
 	return &DeepDiff{
-		changes: cfg.Changes,
+		changes: cfg.CalcChanges,
 	}
 }
 
@@ -53,7 +53,7 @@ func (dd *DeepDiff) StatDiff(ctx context.Context, a, b interface{}) (Deltas, *St
 	return deepdiff.diff(ctx), deepdiff.stats, nil
 }
 
-// Stat calculates the DiffStata between two documents
+// Stat calculates the DiffStats between two documents
 func (dd *DeepDiff) Stat(ctx context.Context, a, b interface{}) (*Stats, error) {
 	deepdiff := &diff{changes: dd.changes, d1: a, d2: b, stats: &Stats{}}
 	deepdiff.diff(ctx)
@@ -372,6 +372,7 @@ func (d *diff) calcDeltas(t1, t2 node) (dts Deltas) {
 			// (eg, empty object is a leaf node)
 			if delta := compareScalar(match, n, p[len(p)-1]); delta != nil {
 				n.SetChangeType(DTUpdate)
+				// TODO (b5) - restore support for change calculation, add tests
 				// if d.changes {
 				// 	// addDelta(root, delta, p)
 				// 	dts = append(dts, delta)
@@ -454,6 +455,7 @@ func sortDeltasAndMaybeCalcStats(deltas Deltas, st *Stats) {
 	}
 }
 
+// TODO (b5) - restore this. We need this if we want to show moves.
 // // calcReorderDeltas creates deltas that describes moves within the same parent
 // // it starts by calculates the largest (order preserving) common subsequence between
 // // two matched parent compound nodes. Background on LCSS:

@@ -119,7 +119,15 @@ func (RootAddr) MarshalJSON() ([]byte, error) {
 type sortableAddrs []Addr
 
 func (a sortableAddrs) Len() int { return len(a) }
-func (a sortableAddrs) Less(i,j int) bool { return a[i].String() < a[j].String() }
+func (a sortableAddrs) Less(i,j int) bool {
+	if ii, ok := a[i].Value().(int); ok {
+		if jj, ok := a[j].Value().(int); ok {
+			return ii < jj
+		}
+	}
+
+	return a[i].String() < a[j].String()
+}
 func (a sortableAddrs) Swap(i,j int) {
 	a[i], a[j] = a[j], a[i]
 }
@@ -165,7 +173,7 @@ type Deltas []*Delta
 func (ds Deltas) Len() int { return len(ds) }
 
 // opOrder determines a total order for operations. It's crucial that deletes
-// comve *before* inserts in diff script presentation
+// come *before* inserts in diff script presentation
 var opOrder = map[Operation]uint{
 	DTDelete:  0,
 	DTContext: 1,
@@ -173,12 +181,22 @@ var opOrder = map[Operation]uint{
 	DTUpdate:  3,
 }
 
-// Less returns trus if the value at index i is a smaller sort quantity than
+// Less returns true if the value at index i is a smaller sort quantity than
 // the value at index j
 func (ds Deltas) Less(i, j int) bool {
-	iAddr := ds[i].Path.String()
-	jAddr := ds[j].Path.String()
-	return iAddr < jAddr || (iAddr == jAddr && opOrder[ds[i].Type] < opOrder[ds[j].Type])
+	iAddr := ds[i].Path
+	jAddr := ds[j].Path
+	if iAddr.Eq(jAddr) {
+		return opOrder[ds[i].Type] < opOrder[ds[j].Type]
+	}
+
+	if a, ok := ds[i].Path.Value().(int); ok {
+		if b, ok := ds[j].Path.Value().(int); ok {
+			return a < b 
+		}
+	}
+
+	return iAddr.String() < jAddr.String()
 }
 
 // Swap reverses the values at indicies i & J

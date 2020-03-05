@@ -34,33 +34,24 @@ func patch(target reflect.Value, delta *Delta) (reflect.Value, error) {
 	// value to the updated child
 	if len(delta.Deltas) > 0 {
 		for _, dlt := range delta.Deltas {
-			// fmt.Printf("patching %s on target %#v\n", dlt.Path, target)
 			patchedChild, err := patch(child(target, delta.Path), dlt)
 			if err != nil {
 				return target, err
 			}
 
-			// fmt.Printf("patch output: %#v\n", patchedChild)
-
 			target, err = set(target, patchedChild, delta.Path)
 			if err != nil {
 				return target, err
 			}
-
-			// fmt.Printf("post-patch-set target: %#v\n\n", target)
 		}
 	}
 
 	switch delta.Type {
 	case DTInsert:
-		// fmt.Printf("applying insert to %s on target %#v\n", delta.Path, target)
 		target, err = insert(target, reflect.ValueOf(delta.Value), delta.Path)
 	case DTDelete:
-		// fmt.Printf("applying delete to %s on target %#v\n", delta.Path, target)
 		target, err = remove(target, delta.Path)
-		// fmt.Printf("post-delete target %#v\n", target)
 	case DTUpdate:
-		// fmt.Printf("applying update to %s on target %#v\n", delta.Path, target)
 		target, err = set(target, reflect.ValueOf(delta.Value), delta.Path)
 	}
 

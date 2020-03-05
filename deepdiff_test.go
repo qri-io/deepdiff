@@ -225,22 +225,37 @@ func TestBasicDiffing(t *testing.T) {
 				{Type: DTContext, Path: StringAddr("c"), Value: []interface{}{float64(3)}},
 			},
 		},
+		{
+			"two inserts",
+			`[
+				{ "fruit": "apple", "color": "red" },
+				{ "fruit": "banana", "color": "yellow" },
+				{ "fruit": "cherry", "color": "red" }
+			]`,
+			`[
+				{ "fruit": "apple", "color": "red" },
+				{ "fruit": "blueberry", "color": "blue" },
+				{ "fruit": "cherry", "color": "red" },
+				{ "fruit": "durian", "color": "green" }
+			]`,
+			Deltas{
+				{Type:  DTContext, Path:  IndexAddr(0), Value: map[string]interface{}{"color": string("red"), "fruit": string("apple")}},
+				{Type:  DTDelete, Path:  IndexAddr(1), Value: map[string]interface{}{"color": string("yellow"), "fruit": string("banana")}},
+				{Type:  DTInsert, Path:  IndexAddr(1), Value: map[string]interface{}{"color": string("blue"), "fruit": string("blueberry")}},
+				{Type:  DTContext, Path:  IndexAddr(2), Value: map[string]interface{}{"color": string("red"), "fruit": string("cherry")}},
+				{Type:  DTInsert, Path:  IndexAddr(3), Value: map[string]interface{}{"color": string("green"), "fruit": string("durian")}},
+			},
+		},
 
-		// TODO (b5) - another problematic diff case
+		// TODO (b5) - problematic test case
 		// {
 		// 	"diff object and array children",
 		// 	`{"a":[0,1,2], "b": true }`,
 		// 	`{"a":{"foo": [0,1,2] }, "b": false }`,
-		// 	Deltas{},
-		// },
-
-		// TODO (b5) - I think this should be an error. These inputs don't share a
-		// common root data type
-		// {
-		// 	"object-to-array root",
-		// 	`[ [1,2,3], [4,5,6], [7,8,9] ]`,
-		// 	`{ "foo": [1,2,3], "baz": { "bat": [false]}}`,
-		// 	Deltas{},
+		// 	Deltas{
+		// 		{Type: DTContext, Path: RootPath{}, Value: map[string]interface{}{"a": []interface{}{float64(0), float64(1), float64(2)}, "b": bool(true)}},
+		// 		{Type: DTInsert, Path: RootAddr{}, Value: }
+		// 	},
 		// },
 	}
 
@@ -276,7 +291,39 @@ func TestChangeDiffs(t *testing.T) {
 		},
 	}
 
-	RunTestCases(t, cases, func(c *Config) { c.Changes = true })
+	RunTestCases(t, cases, func(c *Config) { c.CalcChanges = true })
+}
+
+func TestDeltaSorting(t *testing.T) {
+	cases := []TestCase{
+		{
+		"more than 10 index-addressed deltas",
+		`[[0],[1],[2],[3],[4],[5],[6],[7],[8],[9],[10],[11],[12],[13],[14]]`,
+		`[[0],[1],[2],[3],[4],[5],[6],[7],[8],["apple splat"],[10],[11],[12],[13],[14]]`,
+		Deltas{
+			{Type: DTContext, Path: IndexAddr(0), Value: []interface{}{float64(0)} },
+			{Type: DTContext, Path: IndexAddr(1), Value: []interface{}{float64(1)} },
+			{Type: DTContext, Path: IndexAddr(2), Value: []interface{}{float64(2)} },
+			{Type: DTContext, Path: IndexAddr(3), Value: []interface{}{float64(3)} },
+			{Type: DTContext, Path: IndexAddr(4), Value: []interface{}{float64(4)} },
+			{Type: DTContext, Path: IndexAddr(5), Value: []interface{}{float64(5)} },
+			{Type: DTContext, Path: IndexAddr(6), Value: []interface{}{float64(6)} },
+			{Type: DTContext, Path: IndexAddr(7), Value: []interface{}{float64(7)} },
+			{Type: DTContext, Path: IndexAddr(8), Value: []interface{}{float64(8)} },
+			{Type: DTContext, Path: IndexAddr(9), Deltas: Deltas{
+				{Type: DTDelete, Path: IndexAddr(0), Value: float64(9) },
+				{Type: DTInsert, Path: IndexAddr(0), Value: "apple splat" },
+			}},
+			{Type: DTContext, Path: IndexAddr(10), Value: []interface{}{float64(10)} },
+			{Type: DTContext, Path: IndexAddr(11), Value: []interface{}{float64(11)} },
+			{Type: DTContext, Path: IndexAddr(12), Value: []interface{}{float64(12)} },
+			{Type: DTContext, Path: IndexAddr(13), Value: []interface{}{float64(13)} },
+			{Type: DTContext, Path: IndexAddr(14), Value: []interface{}{float64(14)} },
+		},
+	},
+	}
+
+	RunTestCases(t, cases)
 }
 
 func TestInsertGeneralizing(t *testing.T) {
@@ -337,33 +384,27 @@ func TestInsertGeneralizing(t *testing.T) {
 
 func TestNestedScalar(t *testing.T) {
 	cases := []TestCase{
-		// {
-		// 	"single nested scalar change no scalar matches",
-		// 	`{ "structure": { "formatConfig": { "headerRow": false }}}`,
-		// 	`{ "structure": { "formatConfig": { "headerRow": true }}}`,
-		// 	Deltas{
-		// 		{Type: DTDelete, Path: RootAddr{}, Value: map[string]interface{}{
-		// 			"structure" : map[string]interface{}{
-		// 				"formatConfig": map[string]interface{}{
-		// 					"headerRow": false,
-		// 				},
-		// 			},
-		// 		}},
-		// 		{Type: DTInsert, Path: RootAddr{}, Value: map[string]interface{}{
-		// 			"structure" : map[string]interface{}{
-		// 				"formatConfig": map[string]interface{}{
-		// 					"headerRow": true,
-		// 				},
-		// 			},
-		// 		}},
-		// 		// {Type: DTContext, Path: StringAddr("structure"), Deltas: Deltas{
-		// 		// 	{ Type: DTContext, Path: StringAddr("formatConfig"), Deltas: Deltas{
-		// 		// 		{Type: DTDelete, Path: StringAddr("headerRow"), Value: false },
-		// 		// 		{Type: DTInsert, Path: StringAddr("headerRow"), Value: true },
-		// 		// 	}},
-		// 		// }},
-		// 	},
-		// },
+		{
+			"single nested scalar change no scalar matches",
+			`{ "structure": { "formatConfig": { "headerRow": false }}}`,
+			`{ "structure": { "formatConfig": { "headerRow": true }}}`,
+			Deltas{
+				{Type: DTDelete, Path: RootAddr{}, Value: map[string]interface{}{
+					"structure" : map[string]interface{}{
+						"formatConfig": map[string]interface{}{
+							"headerRow": false,
+						},
+					},
+				}},
+				{Type: DTInsert, Path: RootAddr{}, Value: map[string]interface{}{
+					"structure" : map[string]interface{}{
+						"formatConfig": map[string]interface{}{
+							"headerRow": true,
+						},
+					},
+				}},
+			},
+		},
 		{
 			"single nested scalar change one scalar match",
 			`{ "qri": "ds:0",  "structure": { "formatConfig": { "headerRow": false }}}`,
@@ -392,9 +433,15 @@ func TestRootChanges(t *testing.T) {
 
 	cases := []TestCase{
 		{
-			"large structure overflow",
+			"object-to-array",
 			`{ "qri": "ds:0" }`,
 			`[ "ds:0", ["rank","probability_of_automation","soc_code","job_title"] ]`,
+			Deltas{},
+		},
+		{
+			"array-to-object root",
+			`[ [1,2,3], [4,5,6], [7,8,9] ]`,
+			`{ "foo": [1,2,3], "baz": { "bat": [false]}}`,
 			Deltas{},
 		},
 	}

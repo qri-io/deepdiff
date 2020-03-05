@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// FormatPrettyString is a convenice wrapper that outputs to a string instead of
-// an io.Writer
+// FormatPrettyString is a convenience wrapper that outputs to a string instead
+// of an io.Writer
 func FormatPrettyString(changes Deltas, colorTTY bool) (string, error) {
 	buf := &bytes.Buffer{}
 	if err := FormatPretty(buf, changes, colorTTY); err != nil {
@@ -27,17 +27,21 @@ func FormatPretty(w io.Writer, changes Deltas, colorTTY bool) error {
 	var colorMap map[Operation]string
 
 	if colorTTY {
-		colorMap = map[Operation]string{
-			Operation("close"): "\x1b[0m", // end color tag
-
-			DTContext: "\x1b[37m", // netural
-			DTInsert:  "\x1b[32m", // green
-			DTDelete:  "\x1b[31m", // red
-			DTUpdate:  "\x1b[34m", // blue
-		}
+		colorMap = ttyColorMap()
 	}
 
 	return formatPretty(w, changes, 0, colorMap)
+}
+
+func ttyColorMap() map[Operation]string {
+	return map[Operation]string{
+		Operation("close"): "\x1b[0m", // end color tag
+
+		DTContext: "\x1b[37m", // netural
+		DTInsert:  "\x1b[32m", // green
+		DTDelete:  "\x1b[31m", // red
+		DTUpdate:  "\x1b[34m", // blue
+	}
 }
 
 func formatPretty(w io.Writer, changes Deltas, indent int, colorMap map[Operation]string) error {
@@ -74,14 +78,7 @@ func FormatPrettyStats(w io.Writer, diffStat *Stats, colorTTY bool) {
 	var colorMap map[Operation]string
 
 	if colorTTY {
-		colorMap = map[Operation]string{
-			Operation("close"): "\x1b[0m", // end color tag
-
-			DTContext: "\x1b[37m", // netural
-			DTInsert:  "\x1b[32m", // green
-			DTDelete:  "\x1b[31m", // red
-			DTUpdate:  "\x1b[34m", // blue
-		}
+		colorMap = ttyColorMap()
 	}
 
 	formatStats(w, diffStat, colorMap)
