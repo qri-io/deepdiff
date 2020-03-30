@@ -2,6 +2,7 @@ package deepdiff
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 )
 
@@ -119,7 +120,7 @@ func (RootAddr) MarshalJSON() ([]byte, error) {
 type sortableAddrs []Addr
 
 func (a sortableAddrs) Len() int { return len(a) }
-func (a sortableAddrs) Less(i,j int) bool {
+func (a sortableAddrs) Less(i, j int) bool {
 	if ii, ok := a[i].Value().(int); ok {
 		if jj, ok := a[j].Value().(int); ok {
 			return ii < jj
@@ -128,7 +129,7 @@ func (a sortableAddrs) Less(i,j int) bool {
 
 	return a[i].String() < a[j].String()
 }
-func (a sortableAddrs) Swap(i,j int) {
+func (a sortableAddrs) Swap(i, j int) {
 	a[i], a[j] = a[j], a[i]
 }
 
@@ -166,6 +167,42 @@ func (d *Delta) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// UnmarshalJSON implements the json.Unmarshaler interface
+func (d *Delta) UnmarshalJSON(data []byte) error {
+	var (
+		op          string
+		addr, value interface{}
+		dts         Deltas
+		tuple       = []interface{}{&op, &addr, &value, &dts}
+	)
+	err := json.Unmarshal(data, &tuple)
+	if err != nil {
+		return err
+	}
+
+	d.Type = Operation(op)
+
+	if d.Path, err = unmarshalAddr(addr); err != nil {
+		return err
+	}
+
+	d.Value = value
+
+	d.Deltas = dts
+	return nil
+}
+
+func unmarshalAddr(v interface{}) (Addr, error) {
+	switch t := v.(type) {
+	case string:
+		return StringAddr(t), nil
+	case float64:
+		return IndexAddr(int(t)), nil
+	default:
+		return nil, fmt.Errorf("unknown address type: %T", v)
+	}
+}
+
 // Deltas is a sortable slice of changes
 type Deltas []*Delta
 
@@ -192,7 +229,7 @@ func (ds Deltas) Less(i, j int) bool {
 
 	if a, ok := ds[i].Path.Value().(int); ok {
 		if b, ok := ds[j].Path.Value().(int); ok {
-			return a < b 
+			return a < b
 		}
 	}
 
