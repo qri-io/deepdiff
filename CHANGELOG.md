@@ -1,3 +1,28 @@
+<a name="v0.2.0"></a>
+# [v0.2.0](https://github.com/qri-io/difff/compare/v0.1.0...v0.2.0) (2020-06-29)
+
+
+### Bug Fixes
+
+* **calcDeltas:** propagate hasChanges of descendants upward ([12ed525](https://github.com/qri-io/difff/commit/12ed525))
+* **diff:** sorting output must respect integer addresses ([b59d728](https://github.com/qri-io/difff/commit/b59d728))
+* **int:** Can diff ints, needed for csv body files ([d2c2210](https://github.com/qri-io/difff/commit/d2c2210))
+* **stats:** Avoid crashing when array in a map is entirely deleted ([e5f2ec3](https://github.com/qri-io/difff/commit/e5f2ec3))
+
+
+### Features
+
+* **address:** reperesent address elements as strings, ints, or null ([2610583](https://github.com/qri-io/difff/commit/2610583))
+* **changes:** make change calculation optional ([e9dbc5f](https://github.com/qri-io/difff/commit/e9dbc5f))
+* **DeepDiff:** move diff functions into methods of a config struct ([6bf7c9a](https://github.com/qri-io/difff/commit/6bf7c9a))
+
+
+### BREAKING CHANGES
+
+* **DeepDiff:** api for accessing diff methods have moved into methods, added context to request methods
+
+
+
 <a name=""></a>
 #  (2019-05-30)
 
