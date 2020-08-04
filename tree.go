@@ -190,8 +190,8 @@ func (d *diff) prepTrees(ctx context.Context) (t1, t2 node, t1nodes map[string][
 		wg                sync.WaitGroup
 		t1nodesCh         = make(chan node)
 		t2nodesCh         = make(chan node)
-		t1Nodes, t1Weight int
-		t2Nodes, t2Weight int
+		t1Count, t1Weight int
+		t2Count, t2Weight int
 	)
 
 	t1nodes = map[string][]node{}
@@ -201,7 +201,7 @@ func (d *diff) prepTrees(ctx context.Context) (t1, t2 node, t1nodes map[string][
 		for n := range nodes {
 			key := hashStr(n.Hash())
 			t1nodes[key] = append(t1nodes[key], n)
-			t1Nodes++
+			t1Count++
 			t1Weight += n.Weight()
 		}
 		wg.Done()
@@ -214,7 +214,7 @@ func (d *diff) prepTrees(ctx context.Context) (t1, t2 node, t1nodes map[string][
 	go func(nodes <-chan node) {
 		for n := range nodes {
 			// do nothing
-			t2Nodes++
+			t2Count++
 			t2Weight += n.Weight()
 		}
 		wg.Done()
@@ -227,9 +227,9 @@ func (d *diff) prepTrees(ctx context.Context) (t1, t2 node, t1nodes map[string][
 	wg.Wait()
 
 	if d.stats != nil {
-		d.stats.Left = t1Nodes
+		d.stats.Left = t1Count
 		d.stats.LeftWeight = t1Weight
-		d.stats.Right = t2Nodes
+		d.stats.Right = t2Count
 		d.stats.RightWeight = t2Weight
 	}
 	return

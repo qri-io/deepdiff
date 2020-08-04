@@ -187,19 +187,33 @@ func matchNodes(n1, n2 node) {
 }
 
 func bestCandidate(t1Candidates []node, n2 node, t2Weight int) {
+	if n2.Parent() == nil {
+		return
+	}
+
+	// Copy the candidate list so that this slice can be modified
+	nodeList := make([]node, len(t1Candidates))
+	copy(nodeList, t1Candidates)
+
 	maxDist := 1 + float32(n2.Weight())/float32(t2Weight)
 	dist := 1 + float32(n2.Parent().Weight()-n2.Weight())/float32(t2Weight)
 	n2 = n2.Parent()
 
 	for dist < maxDist {
-		for i, can := range t1Candidates {
+		for i, can := range nodeList {
+			// Some nodes are replaced with their parents, which may result in
+			// a nil pointer once we reach the root
+			if can == nil {
+				continue
+			}
 			if cp := can.Parent(); cp != nil {
 				if n2.Addr().Eq(cp.Addr()) {
 					matchNodes(cp, n2)
 					return
 				}
 			}
-			t1Candidates[i] = can.Parent()
+			// Move to the candidates parent, which may result in a nil pointer
+			nodeList[i] = can.Parent()
 		}
 		if n2.Parent() == nil {
 			break
