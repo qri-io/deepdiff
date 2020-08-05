@@ -505,11 +505,17 @@ func makeDotGraph(aJSON, bJSON, filename string) {
 	d.optimize(d.t1, d.t2)
 
 	buf := dotGraphTree(d)
-	ioutil.WriteFile(fmt.Sprintf("%s.dot", filename), buf.Bytes(), os.ModePerm)
+	err := ioutil.WriteFile(fmt.Sprintf("%s.dot", filename), buf.Bytes(), os.ModePerm)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s", err)
+	}
 
 	delts := d.calcDeltas(d.t1, d.t2)
 	deltas, _ := json.MarshalIndent(delts, "  ", "")
-	ioutil.WriteFile(fmt.Sprintf("%s.deltas.json", filename), deltas, os.ModePerm)
+	err = ioutil.WriteFile(fmt.Sprintf("%s.deltas.json", filename), deltas, os.ModePerm)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s", err)
+	}
 }
 
 func pathString(addrs []Addr) string {
@@ -648,6 +654,306 @@ func TestDiffStats(t *testing.T) {
 		LeftWeight:  107,
 		RightWeight: 13,
 		Deletes:     2,
+	}
+	if diff := cmp.Diff(expectStat, stat); diff != "" {
+		t.Errorf("result mismatch. (-want +got):\n%s", diff)
+	}
+}
+
+func TestDiffDupRow(t *testing.T) {
+	leftData := []interface{}{
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+	}
+	rightData := []interface{}{
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+	}
+	diff, stat, err := New().StatDiff(context.Background(), leftData, rightData)
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+
+	expect := Deltas{
+		{Type: DTContext, Path: IndexAddr(0), Value: []interface{}{int64(1), int64(2), int64(3)}},
+		{Type: DTInsert, Path: IndexAddr(1), Value: []interface{}{int64(4), int64(5), int64(6)}},
+		{Type: DTContext, Path: IndexAddr(2), Value: []interface{}{int64(4), int64(5), int64(6)}},
+	}
+	if diffDiff := cmp.Diff(expect, diff); diffDiff != "" {
+		t.Errorf("deltas mismatch (-want +got):\n%s", diffDiff)
+	}
+	expectStat := &Stats{
+		Left:        9,
+		Right:       13,
+		LeftWeight:  23,
+		RightWeight: 34,
+		Inserts: 1,
+	}
+	if diff := cmp.Diff(expectStat, stat); diff != "" {
+		t.Errorf("result mismatch. (-want +got):\n%s", diff)
+	}
+}
+
+func TestDiffRemoveDup(t *testing.T) {
+	leftData := []interface{}{
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+	}
+	rightData := []interface{}{
+		[]interface{}{int64(1), int64(2), int64(3)},
+		[]interface{}{int64(4), int64(5), int64(6)},
+	}
+	diff, stat, err := New().StatDiff(context.Background(), leftData, rightData)
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+/*
+	Deepdiff returns this instead. Note the invalid path `/3`
+	expect := Deltas{
+		{Type: DTContext, Path: IndexAddr(0), Value: []interface{}{int64(1), int64(2), int64(3)}},
+		{Type: DTDelete, Path: IndexAddr(1), Value: []interface{}{int64(4), int64(5), int64(6)}},
+		{Type: DTInsert, Path: IndexAddr(1), Value: []interface{}{int64(4), int64(5), int64(6)}},
+		{Type: DTDelete, Path: IndexAddr(3), Value: []interface{}{int64(4), int64(5), int64(6)}},
+	}
+*/
+	expect := Deltas{
+		{Type: DTContext, Path: IndexAddr(0), Value: []interface{}{int64(1), int64(2), int64(3)}},
+		{Type: DTDelete, Path: IndexAddr(1), Value: []interface{}{int64(4), int64(5), int64(6)}},
+		{Type: DTContext, Path: IndexAddr(2), Value: []interface{}{int64(4), int64(5), int64(6)}},
+	}
+	if diffDiff := cmp.Diff(expect, diff); diffDiff != "" {
+		t.Errorf("deltas mismatch (-want +got):\n%s", diffDiff)
+	}
+	expectStat := &Stats{
+		Left:        13,
+		Right:       9,
+		LeftWeight:  34,
+		RightWeight: 23,
+		Inserts:     1,
+		Deletes:     2,
+	}
+	if diff := cmp.Diff(expectStat, stat); diff != "" {
+		t.Errorf("result mismatch. (-want +got):\n%s", diff)
+	}
+}
+
+func TestDiffReported(t *testing.T) {
+	leftData := map[string]interface{}{
+		"X": []interface{}{
+			map[string]interface{}{
+				"A": "A",
+			},
+			map[string]interface{}{
+				"B": "B",
+			},
+		},
+		"Y": []interface{}{
+			map[string]interface{}{
+				"C": "C",
+			},
+		},
+	}
+	rightData := map[string]interface{}{
+		"X": []interface{}{
+			map[string]interface{}{
+				"A": "A",
+			},
+		},
+		"Z": []interface{}{
+			map[string]interface{}{
+				"B": "B",
+			},
+			map[string]interface{}{
+				"C": "C",
+			},
+		},
+	}
+	diff, _, err := New().StatDiff(context.Background(), leftData, rightData)
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+	expect := Deltas{
+		{
+			Type: DTContext,
+			Path: StringAddr("X"),
+			Value: []interface{}{
+				map[string]interface{}{
+					"A": string("A"),
+				},
+			},
+		},
+		{
+			Type: DTContext,
+			Path: StringAddr("Z"),
+			Value: []interface{}{
+				map[string]interface{}{
+					"B": string("B"),
+				},
+				map[string]interface{}{
+					"C": string("C"),
+				},
+			},
+		},
+	}
+
+	leftJSON, err := json.Marshal(leftData)
+	if err != nil {
+		panic(err)
+	}
+	rightJSON, err := json.Marshal(rightData)
+	if err != nil {
+		panic(err)
+	}
+	makeDotGraph(string(leftJSON), string(rightJSON), "testdata/other_user")
+
+	if diffDiff := cmp.Diff(expect, diff); diffDiff != "" {
+		t.Errorf("deltas mismatch (-want +got):\n%s", diffDiff)
+	}
+
+	t.Errorf("THIS SHOULD FAIL: the `expect` value above is incorrect")
+}
+
+func TestDiffMoveAndDuplicate(t *testing.T) {
+	leftData := map[string]interface{}{
+		"X": []interface{}{
+			map[string]interface{}{
+				"A": "A",
+			},
+			map[string]interface{}{
+				"B": "B",
+			},
+		},
+		"Y": []interface{}{
+			map[string]interface{}{
+				"C": "C",
+			},
+		},
+	}
+	rightData := map[string]interface{}{
+		"X": []interface{}{
+			map[string]interface{}{
+				"A": "A",
+			},
+		},
+		"Y": []interface{}{
+			map[string]interface{}{
+				"B": "B",
+			},
+			map[string]interface{}{
+				"B": "B",
+			},
+			map[string]interface{}{
+				"C": "C",
+			},
+		},
+	}
+	diff, _, err := New().StatDiff(context.Background(), leftData, rightData)
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+	expect := Deltas{
+		{
+			Type: DTContext,
+			Path: StringAddr("X"),
+			Value: []interface{}{
+				map[string]interface{}{
+					"A": string("A"),
+				},
+			},
+		},
+		{
+			Type: DTContext,
+			Path: StringAddr("Y"),
+			Deltas: Deltas{
+				// NOTE: This result is non-deterministic. Sometimes it's:
+				//   " " 0 {"B": "B"}
+				//   "+" 1 {"B": "B"}
+				//   " " 2 {"C": "C"}
+				// But sometimes it is:
+				//   "+" 0 {"B": "B"}
+				//   " " 1 {"B": "B"}
+				//   " " 2 {"C": "C"}
+				{
+					Type: DTContext, Path: IndexAddr(0), Value: map[string]interface{}{
+						"B": string("B"),
+					},
+				},
+				{
+					Type: DTInsert, Path: IndexAddr(1), Value: map[string]interface{}{
+						"B": string("B"),
+					},
+				},
+				{
+					Type: DTContext, Path: IndexAddr(2), Value: map[string]interface{}{
+						"C": string("C"),
+					},
+				},
+			},
+		},
+	}
+
+	leftJSON, err := json.Marshal(leftData)
+	if err != nil {
+		panic(err)
+	}
+	rightJSON, err := json.Marshal(rightData)
+	if err != nil {
+		panic(err)
+	}
+	makeDotGraph(string(leftJSON), string(rightJSON), "testdata/other_user")
+
+	if diffDiff := cmp.Diff(expect, diff); diffDiff != "" {
+		t.Errorf("deltas mismatch (-want +got):\n%s", diffDiff)
+	}
+}
+
+func TestDiffSimilarProblem(t *testing.T) {
+	leftData := map[string]interface{}{
+		"X": []interface{}{int64(1), int64(2)},
+		"Y": []interface{}{int64(3), int64(4)},
+	}
+	rightData := map[string]interface{}{
+		"X": []interface{}{int64(3), int64(4)},
+		"Y": []interface{}{int64(1), int64(2)},
+	}
+	diff, stat, err := New().StatDiff(context.Background(), leftData, rightData)
+	if err != nil {
+		t.Fatalf("Diff error: %s", err)
+	}
+	expect := Deltas{
+		{
+			Type: " ",
+			Path: StringAddr("X"),
+			Deltas: Deltas{
+				{Type: DTDelete, Path: IndexAddr(0), Value: int64(1)},
+				{Type: DTInsert, Path: IndexAddr(0), Value: int64(3)},
+				{Type: DTDelete, Path: IndexAddr(1), Value: int64(2)},
+				{Type: DTInsert, Path: IndexAddr(1), Value: int64(4)},
+			},
+		},
+		{
+			Type: " ",
+			Path: StringAddr("Y"),
+			Deltas: Deltas{
+				{Type: DTDelete, Path: IndexAddr(0), Value: int64(3)},
+				{Type: DTInsert, Path: IndexAddr(0), Value: int64(1)},
+				{Type: DTDelete, Path: IndexAddr(1), Value: int64(4)},
+				{Type: DTInsert, Path: IndexAddr(1), Value: int64(2)},
+			},
+		},
+	}
+	if diffDiff := cmp.Diff(expect, diff); diffDiff != "" {
+		t.Errorf("deltas mismatch (-want +got):\n%s", diffDiff)
+	}
+	expectStat := &Stats{
+		Left:        7,
+		Right:       7,
+		LeftWeight:  17,
+		RightWeight: 17,
+		Inserts:     4,
+		Deletes:     4,
 	}
 	if diff := cmp.Diff(expectStat, stat); diff != "" {
 		t.Errorf("result mismatch. (-want +got):\n%s", diff)

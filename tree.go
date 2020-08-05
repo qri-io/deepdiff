@@ -242,6 +242,7 @@ func tree(v interface{}, addr Addr, parent node, nodes chan node) (n node) {
 		n = &scalar{
 			t:      ntNull,
 			addr:   addr,
+			// This should only be calculated once
 			hash:   NewHash().Sum([]byte("null")),
 			parent: parent,
 			value:  v,
@@ -284,6 +285,7 @@ func tree(v interface{}, addr Addr, parent node, nodes chan node) (n node) {
 		n = &scalar{
 			t:      ntBool,
 			addr:   addr,
+			// This should only be calculated once
 			hash:   NewHash().Sum([]byte(bstr)),
 			parent: parent,
 			value:  v,

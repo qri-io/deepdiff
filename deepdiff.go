@@ -171,6 +171,9 @@ func (d *diff) queueMatch(t1Nodes map[string][]node, t2 node) {
 // matchNodes connects two nodes & tries to propagate that match upward to
 // ancestors so long as labels match
 func matchNodes(n1, n2 node) {
+	if n1.Match() != nil || n2.Match() != nil {
+		return
+	}
 	n1.SetMatch(n2)
 	n2.SetMatch(n1)
 	n1p := n1.Parent()
