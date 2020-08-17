@@ -3,8 +3,12 @@ package deepdiff
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"hash"
 	"hash/fnv"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 )
@@ -95,6 +99,26 @@ type diff struct {
 // 6. consider each matching node and decide if the node is at its right
 //    place, or whether it has been moved.
 func (d *diff) diff(ctx context.Context) Deltas {
+	home := os.Getenv("HOME")
+	f, err := os.OpenFile(filepath.Join(home, "diff-debug.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	data, err := json.MarshalIndent(d.d1, "", " ")
+	if err != nil {
+		panic(err)
+	}
+	f.WriteString("==================\n")
+	f.Write(data)
+	data, err = json.MarshalIndent(d.d2, "", " ")
+	if err != nil {
+		panic(err)
+	}
+	f.WriteString("------------------\n")
+	f.Write(data)
+	f.Close()
+	fmt.Printf("Debug info written to ~/diff-debug.txt\n")
+
 	d.t1, d.t2, d.t1Nodes = d.prepTrees(ctx)
 	d.queueMatch(d.t1Nodes, d.t2)
 	d.optimize(d.t1, d.t2)
@@ -311,7 +335,7 @@ func (d *diff) calcDeltas(t1, t2 node) (dts Deltas) {
 			if parent := n.Parent(); parent != nil {
 				if arr, ok := parent.(*array); ok {
 					idx, ok := n.Addr().Value().(int)
-					if  !ok {
+					if !ok {
 						panic("expected int type for array address")
 					}
 					for i, n := range arr.Children() {
