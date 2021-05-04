@@ -1,3 +1,14 @@
+<a name="v0.2.1"></a>
+# [v0.2.1](https://github.com/qri-io/deepdiff/compare/v0.2.0...v) (2021-05-04)
+
+This patch release fixes a bug where deepdiff would panic when given certain types of data
+
+### Bug Fixes
+
+* **diff:** Prevent segfaults in bestCandidates ([deda511](https://github.com/qri-io/deepdiff/commit/deda511fddb356bc8d3e9168dc2a4d02343ecb82))
+
+
+
 <a name="v0.2.0"></a>
 # [v0.2.0](https://github.com/qri-io/difff/compare/v0.1.0...v0.2.0) (2020-06-29)
 
